@@ -7,6 +7,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.app.DownloadManager;
 import android.os.Environment;
+import java.io.File;
+import com.arm.aichat.LocalModelBridge;
 import android.os.Bundle;
 import android.view.*;
 import android.view.inputmethod.InputMethodManager;
@@ -43,7 +45,18 @@ public class MainActivity extends Activity {
         TextView send=tv("↑",25,Color.WHITE); send.setGravity(Gravity.CENTER); send.setBackground(bg(PURPLE,28)); LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(dp(52),dp(52)); sp.setMargins(dp(8),0,0,0); composer.addView(send,sp); send.setOnClickListener(v->send(input.getText().toString()));
         TextView footerDonate=button("Donate"); footerDonate.setTextColor(PURPLE); footerDonate.setContentDescription("Donate at raihan.sites.bd"); footerDonate.setOnClickListener(v->openDonate()); LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-2,dp(52)); fp.setMargins(dp(8),0,0,0); composer.addView(footerDonate,fp); root.addView(composer); setContentView(root);
     }
-    void send(String q){ if(q==null||q.trim().isEmpty())return; addMessage("user",q.trim()); input.setText(""); ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(input.getWindowToken(),0); addMessage("assistant",answer(q)); }
+    void send(String q){
+        if(q==null||q.trim().isEmpty())return;
+        addMessage("user",q.trim()); input.setText(""); ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(input.getWindowToken(),0);
+        File model=new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), MODEL_FILE);
+        if(model.exists() && model.length()>1000000){
+            final StringBuilder generated=new StringBuilder();
+            LocalModelBridge.generate(this, model.getAbsolutePath(), MODEL_SYSTEM_PROMPT, q.trim(), new LocalModelBridge.Callback(){
+                public void onToken(String token, boolean done){ if(token!=null) generated.append(token); if(done) addMessage("assistant", generated.toString()); }
+                public void onError(String message){ addMessage("assistant","Apocalyptic AI could not load the local model: "+message+"\n\nOffline guide fallback: "+answer(q)); }
+            });
+        } else addMessage("assistant",answer(q));
+    }
     void addMessage(String who,String text){ LinearLayout box=new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setPadding(dp(15),dp(12),dp(15),dp(12)); box.setBackground(bg(who.equals("user")?Color.rgb(245,244,255):Color.rgb(248,248,249),18)); TextView label=tv(who.equals("user")?"You":"Apocalyptic AI",11,who.equals("user")?PURPLE:MUTED); label.setTypeface(null,1); box.addView(label); TextView body=tv(text,15,INK); body.setPadding(0,dp(5),0,0); box.addView(body); LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2); p.setMargins(0,0,0,dp(10)); messages.addView(box,p); }
     String answer(String q){ String s=q.toLowerCase(Locale.US); if(s.contains("weapon")||s.contains("gun")||s.contains("explosive")||s.contains("trap")) return "I can’t help build weapons, explosives, or injury traps. I can help with safer alternatives: sturdy shelter, water storage, signaling, protective gear, repair tools, and de-escalation planning."; if(s.contains("water")||s.contains("drink")) return "Start with sealed water if available. For uncertain water, use a reliable filter plus boiling or another validated treatment. Store treated water covered, and avoid any source near fuel, chemicals, or sewage."; if(s.contains("shelter")||s.contains("fire")||s.contains("warm")) return "Choose a dry, stable location away from flood paths and damaged structures. Vent any stove outdoors; carbon monoxide has no smell. Insulate from the ground and keep an exit clear."; if(s.contains("first")||s.contains("injury")||s.contains("bleed")) return "Call local emergency services when possible. For severe bleeding, apply firm direct pressure with clean material and keep the person warm. Don’t remove embedded objects; seek trained medical help."; if(s.contains("food")||s.contains("plant")||s.contains("mushroom")) return "Only eat food you can identify with high confidence and that has been stored safely. Unknown plants and mushrooms are not worth the risk. When in doubt, throw it out."; if(s.contains("repair")||s.contains("tool")||s.contains("cord")) return "A small repair kit goes far: cordage, tape, work gloves, pliers, a multi-bit driver, sewing supplies, containers, and a headlamp. Keep tools organized and practice before an emergency."; return "I’m running in compact offline guide mode. Try asking about water, shelter, first aid, food safety, or tools. Download Meta’s LLaMA 3.2 1B GGUF model for full local generation; Apocalyptic AI and the survival library remain available offline."; }
     void downloadModel(){

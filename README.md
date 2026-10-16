@@ -39,3 +39,7 @@ LLaMA 3.2 1B is open-weight, but Meta distributes it under the Llama 3.2 Communi
 ## Content and safety
 
 The bundled summaries are original, concise notes, not full books. The references point to public-domain or openly available preparedness sources. Always follow local law, official emergency guidance, and trained medical advice.
+
+## Native local inference
+
+The app now links the official MIT-licensed llama.cpp Android binding as a pinned source submodule. The Download model action saves a GGUF file into app-private storage; once present, prompts are sent to llama.cpp locally with the Apocalyptic AI system prompt and generated tokens are returned to the chat UI. The Release page publishes only `app-release.apk` and `app-release.aab`.

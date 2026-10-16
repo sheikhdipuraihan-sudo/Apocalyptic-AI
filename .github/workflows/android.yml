@@ -12,6 +12,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -21,13 +23,13 @@ jobs:
         working-directory: gradle
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleDebug :app:bundleRelease --stacktrace
+          ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
           name: apocalyptic-ai-android
           path: |
-            gradle/app/build/outputs/apk/debug/app-debug.apk
+            gradle/app/build/outputs/apk/release/app-release.apk
             gradle/app/build/outputs/bundle/release/app-release.aab
 
   publish-release:
@@ -49,5 +51,5 @@ jobs:
           generate_release_notes: true
           prerelease: true
           files: |
-            release-files/apk/debug/app-debug.apk
+            release-files/apk/release/app-release.apk
             release-files/bundle/release/app-release.aab
