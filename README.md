@@ -5,6 +5,7 @@
 ## Product features
 
 - Full-width Android chat layout with a simple sidebar; saved conversations can be reopened or deleted from the sidebar.
+- Optional on-device voice dictation (Android 12+ with an installed offline speech model) and optional spoken replies through the system voice engine.
 - A visible **Stop** control while the model is generating, with a cancellable native inference loop.
 - On-device chat persistence, model download progress and validation, dark/light/system appearance, and a private go-bag checklist.
 - Safety-oriented survival guidance for water, shelter, first aid, food safety, navigation, communications, and essential supplies. It rejects explicit requests for weapons, explosives, traps, and harming people.
@@ -12,16 +13,17 @@
 
 ## Local model choices
 
-The picker defaults to the compact **Qwen3 0.6B Q4_K_M** model. The optional **SmolLM2 1.7B Q4_K_M** model is the largest offered and is intended for newer phones; 6 GB or more total RAM is recommended, and the app checks available memory before starting it. There are no 7B/13B-class downloads.
+The picker defaults to **TituLM 1B MPT Q4_K_M**, a compact Bangla/English model. Other choices include Qwen3 0.6B, Qwen2.5 0.5B, SmolLM2 360M, and SmolLM2 1.7B. The 1.7B model is intended for newer phones; 6 GB or more total RAM is recommended, and the app checks available memory before starting it. There are no 7B/13B-class downloads.
 
 | Model | Quantization / approximate download | Upstream model and license | GGUF download repository |
 | --- | --- | --- | --- |
+| TituLM 1B MPT v2 | Q4_K_M · 870 MiB | [Hishab TituLM MPT 1B v2](https://huggingface.co/hishab/titulm-mpt-1b-v2.0) · Apache-2.0 | [mradermacher GGUF](https://huggingface.co/mradermacher/titulm-mpt-1b-v2.0-i1-GGUF) |
 | Qwen3 0.6B | Q4_K_M · 462 MiB | [Qwen3 0.6B](https://huggingface.co/Qwen/Qwen3-0.6B) · Apache-2.0 | [bartowski GGUF](https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF) |
 | Qwen2.5 0.5B Instruct | Q4_K_M · 379 MiB | [Qwen2.5 0.5B Instruct](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct) · Apache-2.0 | [bartowski GGUF](https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF) |
 | SmolLM2 360M Instruct | Q4_K_M · 258 MiB | [SmolLM2 360M Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct) · Apache-2.0 | [bartowski GGUF](https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF) |
 | SmolLM2 1.7B Instruct | Q4_K_M · 1.0 GiB | [SmolLM2 1.7B Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct) · Apache-2.0 | [Hugging Face Smol Models GGUF](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF) |
 
-The model cards list the upstream model terms. Quantized files are downloaded from the linked GGUF repositories, which may be maintained by a different publisher; review **both** links, the repository license, and any applicable terms before commercial distribution. This project does not redistribute the downloaded weights and does not make a legal-clearance guarantee. Model licenses do not establish rights to all training data, trademarks, or generated output.
+The model cards list the upstream model terms. Quantized files are downloaded from the linked GGUF repositories, which may be maintained by a different publisher; review **both** links, the repository license, and any applicable terms before commercial distribution. TituLM MPT 1B is distinct from the TituLLM Llama 3.2 1B variant. This project does not redistribute the downloaded weights and does not make a legal-clearance guarantee. Model licenses do not establish rights to all training data, trademarks, or generated output.
 
 Weights are kept in the app’s private Downloads directory and tracked with Android DownloadManager. The app checks available storage and validates the downloaded GGUF before enabling chat. Wi-Fi is recommended. The app does not send chat content to a server.
 
@@ -31,6 +33,7 @@ Weights are kept in the app’s private Downloads directory and tracked with And
 - The app is a general preparedness aid, not medical, legal, or professional advice. Follow local law, official emergency instructions, and trained professional guidance.
 - Chat history and model files are stored on the device in app-private storage. Users can clear the active chat or remove downloaded models from the app. Android backup is disabled in the manifest.
 - The optional internet permission is used for model downloads and opening the donation website; it is not used to send prompts to a remote inference service.
+- Microphone access is requested only after the user taps Mic. Voice recognition uses the device's on-device speech service; spoken replies use the installed system TTS engine, whose offline behavior depends on the selected voice.
 
 ## Model attribution and third-party licenses
 

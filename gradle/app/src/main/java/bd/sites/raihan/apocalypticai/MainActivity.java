@@ -4,8 +4,10 @@ import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
+import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -13,6 +15,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.PictureDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
@@ -29,6 +32,10 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import android.speech.tts.TextToSpeech;
 
 import com.arm.aichat.LocalModelBridge;
 import com.caverock.androidsvg.SVG;
@@ -52,9 +59,12 @@ public class MainActivity extends Activity {
     private static final String PREFS = "apocalyptic_ai_prefs";
     private static final String CHAT_KEY = "chat_messages_v2";
     private static final String HISTORY_KEY = "chat_history_v1";
+    private static final String ACTIVE_SESSION_KEY = "active_chat_session_id";
+    private static final String SPEAK_REPLIES_KEY = "speak_replies_enabled";
+    private static final String VOICE_LANGUAGE_KEY = "voice_language";
     private static final String DOWNLOAD_KEY = "model_download_id";
     private static final String SELECTED_MODEL_KEY = "selected_model_id";
-    private static final String SYSTEM_PROMPT = "You are Apocalyptic AI, a private on-device survival and emergency-preparedness assistant. Give concise, practical, cautious, lawful, non-violent guidance about water, shelter, first aid, food safety, navigation, communications, and essential supplies. Never provide instructions for weapons, explosives, traps, or harming people. Do not invent certainty: distinguish general guidance from local emergency instructions, recommend trained medical care when appropriate, and state when you do not know.";
+    private static final String SYSTEM_PROMPT = "You are Apocalyptic AI, a concise on-device preparedness assistant. Give direct, practical safety guidance. Never help with weapons, explosives, traps, or harming people. For emergencies, recommend local emergency services or qualified professionals. Return only the answer; do not reveal private reasoning.";
     private static final String[] KIT_ITEMS = {"Safe drinking water", "Water treatment method", "Shelf-stable food", "First-aid kit", "Essential medicines", "Warm and rain layers", "Light and spare power", "Paper map and compass", "Whistle or signal", "Repair kit and cordage", "Hygiene supplies", "Emergency contacts and plan"};
 
     private static final class ModelSpec {
@@ -75,8 +85,13 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Keep downloads modest for phones. The optional 1.7B model is an upper tier for newer devices.
+    private static final String DEFAULT_MODEL_ID = "titulm-mpt-1b";
+    // Keep downloads modest for phones; the first-run default is the requested compact TituLM 1B.
     private static final ModelSpec[] MODELS = {
+            new ModelSpec("titulm-mpt-1b", "TituLM · 1B", "Bangla + English · Q4_K_M · about 870 MiB · fast default",
+                    "titulm-mpt-1b-v2.0.i1-Q4_K_M.gguf",
+                    "https://huggingface.co/mradermacher/titulm-mpt-1b-v2.0-i1-GGUF/resolve/main/titulm-mpt-1b-v2.0.i1-Q4_K_M.gguf?download=true",
+                    911_355_520L, "Hishab Technologies", "https://huggingface.co/hishab/titulm-mpt-1b-v2.0", "https://huggingface.co/mradermacher/titulm-mpt-1b-v2.0-i1-GGUF", "Apache-2.0"),
             new ModelSpec("qwen3-06b", "Qwen3 · 0.6B", "Newer general-purpose model · Q4_K_M · about 462 MiB",
                     "Qwen_Qwen3-0.6B-Q4_K_M.gguf",
                     "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/main/Qwen_Qwen3-0.6B-Q4_K_M.gguf?download=true",
@@ -102,6 +117,7 @@ public class MainActivity extends Activity {
     private LinearLayout messageColumn;
     private ScrollView chatScroll;
     private EditText composer;
+    private TextView microphoneButton;
     private ProgressBar modelProgress;
     private TextView modelProgressText;
     private TextView modelPageStatus;
@@ -110,10 +126,17 @@ public class MainActivity extends Activity {
     private ProgressBar checklistProgress;
     private FrameLayout navigationOverlay;
     private String activeTab = "chat";
-    private String selectedModelId = MODELS[0].id;
+    private String selectedModelId = DEFAULT_MODEL_ID;
+    private String activeConversationId = "";
     private boolean checklistOpen;
     private long downloadId = -1L;
     private boolean isGenerating;
+    private boolean isListening;
+    private SpeechRecognizer speechRecognizer;
+    private TextToSpeech textToSpeech;
+    private boolean textToSpeechReady;
+    private String pendingSpeech = "";
+    private String voiceInputBaseText = "";
     private boolean generationStoppedByUser;
     private boolean restoreHistoryContext;
     private int onboardingPage;
@@ -135,6 +158,7 @@ public class MainActivity extends Activity {
 
     private ModelSpec findModel(String id) {
         for (ModelSpec model : MODELS) if (model.id.equals(id)) return model;
+        for (ModelSpec model : MODELS) if (DEFAULT_MODEL_ID.equals(model.id)) return model;
         return MODELS[0];
     }
 
@@ -146,7 +170,7 @@ public class MainActivity extends Activity {
         android.content.SharedPreferences prefs = getPreferences(MODE_PRIVATE);
         String key = modelDownloadKey(modelId);
         if (prefs.contains(key)) return prefs.getLong(key, -1L);
-        if (MODELS[0].id.equals(modelId) && prefs.contains(DOWNLOAD_KEY)) {
+        if ("qwen3-06b".equals(modelId) && prefs.contains(DOWNLOAD_KEY)) {
             long legacyId = prefs.getLong(DOWNLOAD_KEY, -1L);
             prefs.edit().putLong(key, legacyId).remove(DOWNLOAD_KEY).apply();
             return legacyId;
@@ -160,7 +184,7 @@ public class MainActivity extends Activity {
 
     private void clearDownloadId(String modelId) {
         getPreferences(MODE_PRIVATE).edit().remove(modelDownloadKey(modelId)).apply();
-        if (MODELS[0].id.equals(modelId)) getPreferences(MODE_PRIVATE).edit().remove(DOWNLOAD_KEY).apply();
+        if ("qwen3-06b".equals(modelId)) getPreferences(MODE_PRIVATE).edit().remove(DOWNLOAD_KEY).apply();
     }
 
     private File getModelFile(ModelSpec model) {
@@ -209,7 +233,8 @@ public class MainActivity extends Activity {
         applyTheme();
         getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         loadChat();
-        selectedModelId = getPreferences(MODE_PRIVATE).getString(SELECTED_MODEL_KEY, MODELS[0].id);
+        activeConversationId = getPreferences(MODE_PRIVATE).getString(ACTIVE_SESSION_KEY, "");
+        selectedModelId = getPreferences(MODE_PRIVATE).getString(SELECTED_MODEL_KEY, DEFAULT_MODEL_ID);
         selectedModelId = findModel(selectedModelId).id;
         downloadId = savedDownloadId(selectedModelId);
         if (!getPreferences(MODE_PRIVATE).getBoolean("onboarding_complete", false)) showOnboarding(0);
@@ -223,12 +248,30 @@ public class MainActivity extends Activity {
 
     @Override protected void onPause() {
         handler.removeCallbacks(downloadPoller);
+        if (isListening) stopVoiceInput(true);
         super.onPause();
     }
 
     @Override protected void onDestroy() {
         handler.removeCallbacks(downloadPoller);
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+            speechRecognizer = null;
+        }
+        if (textToSpeech != null) {
+            textToSpeech.stop();
+            textToSpeech.shutdown();
+            textToSpeech = null;
+        }
         super.onDestroy();
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 3107) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) startVoiceInput();
+            else toast("Microphone permission is needed for voice input.");
+        }
     }
 
 
@@ -652,13 +695,23 @@ public class MainActivity extends Activity {
         composer.setPadding(dp(15), dp(10), dp(12), dp(10));
         composer.setBackground(round(CARD, 20));
         composeRow.addView(composer, new LinearLayout.LayoutParams(0, dp(52), 1));
-        TextView send = label(isGenerating ? "■" : "↑", isGenerating ? 19 : 24, ON_ACCENT);
+        microphoneButton = label(isListening ? "Stop" : "Mic", 12, GREEN_DARK);
+        microphoneButton.setTypeface(null, Typeface.BOLD);
+        microphoneButton.setGravity(Gravity.CENTER);
+        microphoneButton.setContentDescription(isListening ? "Stop voice input" : "Start on-device voice input");
+        microphoneButton.setBackground(round(GREEN_SOFT, 18));
+        microphoneButton.setEnabled(!isGenerating);
+        LinearLayout.LayoutParams microphoneParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+        microphoneParams.leftMargin = dp(6);
+        composeRow.addView(microphoneButton, microphoneParams);
+        microphoneButton.setOnClickListener(v -> { if (isListening) stopVoiceInput(false); else requestVoiceInput(); });
+        TextView send = label(isGenerating ? "Stop" : "Send", 13, ON_ACCENT);
         send.setTypeface(null, Typeface.BOLD);
         send.setGravity(Gravity.CENTER);
         send.setContentDescription(isGenerating ? "Stop response" : "Send message");
         send.setBackground(round(GREEN, 20));
         send.setClickable(true);
-        LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(dp(50), dp(50));
+        LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(dp(58), dp(50));
         sendParams.leftMargin = dp(8);
         composeRow.addView(send, sendParams);
         send.setOnClickListener(v -> { if (isGenerating) stopGeneration(); else sendMessage(); });
@@ -1037,6 +1090,157 @@ public class MainActivity extends Activity {
         return "Not downloaded · choose a model to begin local chat";
     }
 
+    private void requestVoiceInput() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            toast("Private voice input requires Android 12 or newer with an on-device speech model.");
+            return;
+        }
+        if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+            toast("No on-device speech model is installed. Add an offline speech language in your device settings.");
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 3107);
+            return;
+        }
+        startVoiceInput();
+    }
+
+    private void startVoiceInput() {
+        if (isGenerating || isListening) return;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+            toast("On-device speech recognition is unavailable on this device.");
+            return;
+        }
+        try {
+            voiceInputBaseText = composer == null ? "" : composer.getText().toString().trim();
+            speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this);
+            speechRecognizer.setRecognitionListener(new RecognitionListener() {
+                @Override public void onReadyForSpeech(Bundle params) { }
+                @Override public void onBeginningOfSpeech() { }
+                @Override public void onRmsChanged(float rmsdB) { }
+                @Override public void onBufferReceived(byte[] buffer) { }
+                @Override public void onEndOfSpeech() { }
+                @Override public void onError(int error) {
+                    boolean wasListening = isListening;
+                    finishVoiceInput();
+                    if (!wasListening) return;
+                    toast(error == SpeechRecognizer.ERROR_NO_MATCH ? "No speech was recognized. Try again." : "Voice input stopped. Try again.");
+                }
+                @Override public void onResults(Bundle results) {
+                    ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (matches != null && !matches.isEmpty()) {
+                        updateVoiceInput(matches.get(0));
+                        toast("Voice input added. Review it before sending.");
+                    } else toast("No speech was recognized. Try again.");
+                    finishVoiceInput();
+                }
+                @Override public void onPartialResults(Bundle partialResults) {
+                    ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (matches != null && !matches.isEmpty()) updateVoiceInput(matches.get(0));
+                }
+                @Override public void onEvent(int eventType, Bundle params) { }
+            });
+            Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, voiceLanguageTag());
+            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+            intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+            isListening = true;
+            if (microphoneButton != null) {
+                microphoneButton.setText("Stop");
+                microphoneButton.setContentDescription("Stop voice input");
+            }
+            speechRecognizer.startListening(intent);
+            toast("Listening on this device… tap Stop when finished.");
+        } catch (Exception e) {
+            finishVoiceInput();
+            toast("Could not start on-device voice input.");
+        }
+    }
+
+    private void updateVoiceInput(String recognizedText) {
+        if (composer == null || recognizedText == null || recognizedText.trim().isEmpty()) return;
+        String text = voiceInputBaseText.isEmpty() ? recognizedText.trim() : voiceInputBaseText + " " + recognizedText.trim();
+        composer.setText(text);
+        composer.setSelection(text.length());
+    }
+
+    private void stopVoiceInput(boolean cancel) {
+        if (speechRecognizer != null) {
+            if (cancel) {
+                speechRecognizer.cancel();
+                finishVoiceInput();
+            } else {
+                speechRecognizer.stopListening();
+            }
+        }
+    }
+
+    private void finishVoiceInput() {
+        isListening = false;
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+            speechRecognizer = null;
+        }
+        if (microphoneButton != null) {
+            microphoneButton.setText("Mic");
+            microphoneButton.setContentDescription("Start on-device voice input");
+        }
+    }
+
+    private void toggleSpokenReplies() {
+        boolean enabled = !getPreferences(MODE_PRIVATE).getBoolean(SPEAK_REPLIES_KEY, false);
+        getPreferences(MODE_PRIVATE).edit().putBoolean(SPEAK_REPLIES_KEY, enabled).apply();
+        if (!enabled && textToSpeech != null) textToSpeech.stop();
+        toast(enabled ? "Spoken replies enabled. Uses the system voice installed on your phone." : "Spoken replies disabled.");
+        showMain();
+    }
+
+    private String voiceLanguageTag() {
+        String setting = getPreferences(MODE_PRIVATE).getString(VOICE_LANGUAGE_KEY, "system");
+        return "system".equals(setting) ? Locale.getDefault().toLanguageTag() : setting;
+    }
+
+    private String voiceLanguageLabel() {
+        String setting = getPreferences(MODE_PRIVATE).getString(VOICE_LANGUAGE_KEY, "system");
+        return "bn-BD".equals(setting) ? "Bangla" : "en-US".equals(setting) ? "English" : "System language";
+    }
+
+    private void cycleVoiceLanguage() {
+        String setting = getPreferences(MODE_PRIVATE).getString(VOICE_LANGUAGE_KEY, "system");
+        String next = "system".equals(setting) ? "bn-BD" : "bn-BD".equals(setting) ? "en-US" : "system";
+        getPreferences(MODE_PRIVATE).edit().putString(VOICE_LANGUAGE_KEY, next).apply();
+        if (textToSpeech != null) textToSpeech.setLanguage(Locale.forLanguageTag("system".equals(next) ? Locale.getDefault().toLanguageTag() : next));
+        toast("Voice language: " + ("bn-BD".equals(next) ? "Bangla" : "en-US".equals(next) ? "English" : "system language"));
+        showMain();
+    }
+
+    private void speakAssistantReply(String text) {
+        if (!getPreferences(MODE_PRIVATE).getBoolean(SPEAK_REPLIES_KEY, false) || text == null || text.trim().isEmpty()) return;
+        pendingSpeech = text.trim();
+        if (textToSpeech == null) {
+            textToSpeech = new TextToSpeech(getApplicationContext(), status -> {
+                if (status == TextToSpeech.SUCCESS && textToSpeech != null) {
+                    textToSpeechReady = true;
+                    int languageStatus = textToSpeech.setLanguage(Locale.forLanguageTag(voiceLanguageTag()));
+                    if (languageStatus == TextToSpeech.LANG_MISSING_DATA || languageStatus == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        toast("No installed speech voice supports your device language.");
+                        return;
+                    }
+                    speakPendingReply();
+                } else toast("The installed system speech engine could not start.");
+            });
+        } else if (textToSpeechReady) speakPendingReply();
+    }
+
+    private void speakPendingReply() {
+        if (textToSpeech == null || !textToSpeechReady || pendingSpeech.isEmpty()
+                || !getPreferences(MODE_PRIVATE).getBoolean(SPEAK_REPLIES_KEY, false)) return;
+        textToSpeech.speak(pendingSpeech, TextToSpeech.QUEUE_FLUSH, null, "reply-" + System.currentTimeMillis());
+        pendingSpeech = "";
+    }
+
     private void renderSettings() {
         TextView title = label("Settings", 23, INK);
         title.setTypeface(null, Typeface.BOLD);
@@ -1059,6 +1263,9 @@ public class MainActivity extends Activity {
         list.addView(privacy);
 
         list.addView(settingRow("Appearance", "Theme: " + themeLabel() + " (tap to change)", v -> cycleTheme()));
+        boolean speechEnabled = getPreferences(MODE_PRIVATE).getBoolean(SPEAK_REPLIES_KEY, false);
+        list.addView(settingRow("Spoken replies", speechEnabled ? "On · uses your installed system voice" : "Off · tap to enable system voice output", v -> toggleSpokenReplies()));
+        list.addView(settingRow("Voice language", voiceLanguageLabel() + " · tap to change", v -> cycleVoiceLanguage()));
         list.addView(settingRow("Recent chats", "Open conversations saved on this device", v -> openHistory()));
         list.addView(settingRow("My go-bag checklist", checklistSummary(), v -> openChecklist()));
         list.addView(settingRow("Preparedness safety", "Guidance is cautious and non-violent", v -> showSafety()));
@@ -1093,12 +1300,14 @@ public class MainActivity extends Activity {
             toast("Download a local model before starting AI chat.");
             return;
         }
-        if ("smollm2-17b".equals(selectedModelId)) {
+        if ("titulm-mpt-1b".equals(selectedModelId) || "smollm2-17b".equals(selectedModelId)) {
             ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
             ActivityManager activityManager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
             if (activityManager != null) activityManager.getMemoryInfo(memoryInfo);
-            if (activityManager != null && memoryInfo.availMem < 1_800L * 1024L * 1024L) {
-                toast("Low free memory for the 1.7B model. Close other apps or choose a smaller model.");
+            long minimumFreeMemory = "titulm-mpt-1b".equals(selectedModelId)
+                    ? 1_200L * 1024L * 1024L : 1_800L * 1024L * 1024L;
+            if (activityManager != null && memoryInfo.availMem < minimumFreeMemory) {
+                toast("Low free memory for this model. Close other apps or choose a smaller model.");
                 return;
             }
         }
@@ -1124,8 +1333,12 @@ public class MainActivity extends Activity {
         LocalModelBridge.generate(this, getModelFile().getAbsolutePath(), selectedSystemPrompt(), inferencePrompt, new LocalModelBridge.Callback() {
             @Override public void onToken(String token, boolean done) {
                 if (token != null) generated.append(token);
-                reply.text = generated.toString();
-                if (replyView != null) replyView.setText(reply.text.isEmpty() ? "Thinking…" : reply.text);
+                reply.text = visibleAssistantText(generated.toString());
+                if (replyView != null) {
+                    boolean reasoningOnly = reply.text.trim().isEmpty() && generated.length() > 0;
+                    replyView.setText(reasoningOnly || reply.text.isEmpty() ? "Thinking…" : reply.text);
+                    replyView.setTextColor(reasoningOnly || reply.text.isEmpty() ? MUTED : INK);
+                }
                 if (chatScroll != null) chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
                 if (done) {
                     isGenerating = false;
@@ -1133,6 +1346,7 @@ public class MainActivity extends Activity {
                     if (reply.text.trim().isEmpty()) reply.text = stopped ? "Response stopped." : "I couldn’t produce a response. Please try a shorter question.";
                     saveChat();
                     archiveCurrentChat();
+                    speakAssistantReply(reply.text);
                     generationStoppedByUser = false;
                     showMain();
                     if (stopped) toast("Response stopped. Your conversation is saved.");
@@ -1185,6 +1399,27 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    /** Hide internal reasoning tags, including partial tags split across streamed tokens. */
+    private String visibleAssistantText(String raw) {
+        if (raw == null || raw.isEmpty()) return "";
+        String visible = raw.replaceAll("(?is)<think(?:ing)?\\b[^>]*>.*?(?:</think(?:ing)?\\s*>|$)", "")
+                .replaceAll("(?is)<analysis\\b[^>]*>.*?(?:</analysis\\s*>|$)", "")
+                .replaceAll("(?is)</?(?:think(?:ing)?|analysis)\\s*>", "");
+        String lower = visible.toLowerCase(Locale.US);
+        String[] markers = {"<think", "</think", "<analysis", "</analysis"};
+        for (String marker : markers) {
+            int max = Math.min(marker.length() - 1, lower.length());
+            for (int n = max; n > 0; n--) {
+                if (lower.endsWith(marker.substring(0, n))) {
+                    visible = visible.substring(0, visible.length() - n);
+                    lower = lower.substring(0, lower.length() - n);
+                    break;
+                }
+            }
+        }
+        return visible.trim();
+    }
+
     private void addMessage(String role, String text) {
         ChatMessage message = new ChatMessage(role, text);
         chat.add(message);
@@ -1201,7 +1436,8 @@ public class MainActivity extends Activity {
         TextView who = label(user ? "YOU" : "APOCALYPTIC AI", 10, user ? GREEN : MUTED);
         who.setTypeface(null, Typeface.BOLD);
         bubble.addView(who);
-        TextView body = label(message.text.isEmpty() ? "Thinking…" : message.text, 14, INK);
+        String displayText = "user".equals(message.role) ? message.text : visibleAssistantText(message.text);
+        TextView body = label(displayText.isEmpty() ? "Thinking…" : displayText, 14, INK);
         body.setLineSpacing(dp(3), 1.0f);
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2); bp.topMargin = dp(5); bubble.addView(body, bp);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
@@ -1229,6 +1465,7 @@ public class MainActivity extends Activity {
                 JSONObject item = array.getJSONObject(i);
                 String role = item.optString("role", "assistant");
                 String text = item.optString("text", "");
+                if ("assistant".equals(role)) text = visibleAssistantText(text);
                 if ("user".equals(role) || "assistant".equals(role)) chat.add(new ChatMessage(role, text));
             }
         } catch (Exception ignored) { chat.clear(); }
@@ -1274,19 +1511,34 @@ public class MainActivity extends Activity {
                 messages.put(item);
             }
             JSONArray previous = new JSONArray(getPreferences(MODE_PRIVATE).getString(HISTORY_KEY, "[]"));
-            if (previous.length() > 0) {
-                JSONArray oldMessages = previous.getJSONObject(0).optJSONArray("messages");
-                if (oldMessages != null && oldMessages.toString().equals(messages.toString())) return;
+            for (int i = 0; i < previous.length(); i++) {
+                JSONObject oldSession = previous.getJSONObject(i);
+                JSONArray oldMessages = oldSession.optJSONArray("messages");
+                if (oldMessages != null && oldMessages.toString().equals(messages.toString())) {
+                    activeConversationId = oldSession.optString("id", "");
+                    getPreferences(MODE_PRIVATE).edit().putString(ACTIVE_SESSION_KEY, activeConversationId).apply();
+                    return;
+                }
             }
+            if (activeConversationId.isEmpty()) activeConversationId = Long.toString(System.currentTimeMillis());
             JSONObject session = new JSONObject();
-            session.put("id", Long.toString(System.currentTimeMillis()));
+            session.put("id", activeConversationId);
             session.put("title", title.isEmpty() ? "Preparedness chat" : title);
             session.put("savedAt", System.currentTimeMillis());
             session.put("messages", messages);
             JSONArray history = new JSONArray();
             history.put(session);
-            for (int i = 0; i < Math.min(19, previous.length()); i++) history.put(previous.getJSONObject(i));
-            getPreferences(MODE_PRIVATE).edit().putString(HISTORY_KEY, history.toString()).apply();
+            int kept = 0;
+            for (int i = 0; i < previous.length() && kept < 19; i++) {
+                JSONObject oldSession = previous.getJSONObject(i);
+                if (activeConversationId.equals(oldSession.optString("id", ""))) continue;
+                history.put(oldSession);
+                kept++;
+            }
+            getPreferences(MODE_PRIVATE).edit()
+                    .putString(HISTORY_KEY, history.toString())
+                    .putString(ACTIVE_SESSION_KEY, activeConversationId)
+                    .apply();
         } catch (Exception ignored) { }
     }
 
@@ -1318,11 +1570,20 @@ public class MainActivity extends Activity {
                 for (int i = 0; i < messages.length(); i++) {
                     JSONObject item = messages.getJSONObject(i);
                     String role = item.optString("role", "assistant");
-                    if ("user".equals(role) || "assistant".equals(role)) chat.add(new ChatMessage(role, item.optString("text", "")));
+                    if ("user".equals(role) || "assistant".equals(role)) {
+                        String text = item.optString("text", "");
+                        if ("assistant".equals(role)) text = visibleAssistantText(text);
+                        ChatMessage previous = chat.isEmpty() ? null : chat.get(chat.size() - 1);
+                        if (previous == null || !previous.role.equals(role) || !previous.text.equals(text)) {
+                            chat.add(new ChatMessage(role, text));
+                        }
+                    }
                 }
             }
             saveChat();
             LocalModelBridge.startNewConversation();
+            activeConversationId = selected.optString("id", "");
+            getPreferences(MODE_PRIVATE).edit().putString(ACTIVE_SESSION_KEY, activeConversationId).apply();
             restoreHistoryContext = true;
             activeTab = "chat";
             checklistOpen = false;
@@ -1365,6 +1626,8 @@ public class MainActivity extends Activity {
         chat.clear();
         saveChat();
         LocalModelBridge.startNewConversation();
+        activeConversationId = "";
+        getPreferences(MODE_PRIVATE).edit().remove(ACTIVE_SESSION_KEY).apply();
         restoreHistoryContext = false;
         checklistOpen = false;
         activeTab = "chat";
@@ -1376,7 +1639,7 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Clear saved chat?")
                 .setMessage("This removes the locally saved conversation from this device.")
                 .setNegativeButton("Keep it", null)
-                .setPositiveButton("Clear", (d, w) -> { chat.clear(); saveChat(); LocalModelBridge.startNewConversation(); restoreHistoryContext = false; activeTab = "chat"; checklistOpen = false; showMain(); })
+                .setPositiveButton("Clear", (d, w) -> { chat.clear(); saveChat(); LocalModelBridge.startNewConversation(); activeConversationId = ""; getPreferences(MODE_PRIVATE).edit().remove(ACTIVE_SESSION_KEY).apply(); restoreHistoryContext = false; activeTab = "chat"; checklistOpen = false; showMain(); })
                 .show();
     }
 
@@ -1459,7 +1722,7 @@ public class MainActivity extends Activity {
     private void showPrivacyDetails() {
         new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
                 .setTitle("Privacy and data")
-                .setMessage("Your chat messages, saved conversation history, checklist, and downloaded model are stored in this app on this device. Prompts are not sent to an AI server, and this app has no account or analytics service.\n\nWhen you choose a model, Android downloads its weights from the listed model host; that host may receive normal connection metadata such as your IP address. Donate opens raihan.sites.bd in an external browser, which follows that site's own privacy practices. Android backup is disabled. Clear chats and remove downloads from the app when you want to erase them.")
+                .setMessage("Your chat messages, saved conversation history, checklist, and downloaded model are stored in this app on this device. Prompts are not sent to an AI server, and this app has no account or analytics service.\n\nVoice input is optional and starts only after you tap Mic and grant microphone permission. It uses Android's on-device speech recognizer when available (Android 12+ and an installed offline speech model). Spoken replies are optional and use the system text-to-speech voice; its offline behavior depends on the voice installed on your device.\n\nWhen you choose a model, Android downloads its weights from the listed model host; that host may receive normal connection metadata such as your IP address. Donate opens raihan.sites.bd in an external browser, which follows that site's own privacy practices. Android backup is disabled. Clear chats and remove downloads from the app when you want to erase them.")
                 .setPositiveButton("Close", null).show();
     }
 
