@@ -22,8 +22,10 @@
 #endif
 #endif
 
-static inline int ai_should_log(int prio) {
-    return __android_log_is_loggable(prio, LOG_TAG, LOG_MIN_LEVEL);
+static inline int ai_should_log(int /*prio*/) {
+    // __android_log_is_loggable was introduced in API 30; keep the native
+    // runtime compatible with the app minimum of Android 7 / API 24.
+    return 1;
 }
 
 #if LOG_MIN_LEVEL <= ANDROID_LOG_VERBOSE
