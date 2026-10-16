@@ -1,16 +1,19 @@
 plugins { id 'com.android.application' }
 
 def releaseKeystore = rootProject.file('release.keystore')
-def hasReleaseSigning = releaseKeystore.exists() && System.getenv('ANDROID_KEYSTORE_PASSWORD')
+def signingProperties = new Properties()
+def signingPropertiesFile = rootProject.file('signing.properties')
+if (signingPropertiesFile.exists()) { signingPropertiesFile.withInputStream { signingProperties.load(it) } }
+def hasReleaseSigning = releaseKeystore.exists() && signingProperties.getProperty('storePassword')
 android { namespace 'bd.sites.raihan.apocalypticai'; compileSdk 35
     defaultConfig { applicationId 'bd.sites.raihan.apocalypticai'; minSdk 24; targetSdk 35; versionCode 1; versionName '1.0.0' }
     signingConfigs {
         release {
             if (hasReleaseSigning) {
                 storeFile releaseKeystore
-                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
-                keyAlias System.getenv('ANDROID_KEY_ALIAS')
-                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+                storePassword signingProperties.getProperty('storePassword')
+                keyAlias signingProperties.getProperty('keyAlias')
+                keyPassword signingProperties.getProperty('keyPassword')
             }
         }
     }

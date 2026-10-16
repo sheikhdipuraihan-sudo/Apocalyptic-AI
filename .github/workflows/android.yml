@@ -19,22 +19,11 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Prepare private release signing
-        working-directory: gradle
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: |
-          test -n "$ANDROID_KEYSTORE_BASE64" || { echo 'Missing ANDROID_KEYSTORE_BASE64 repository secret'; exit 1; }
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release.keystore
-          chmod 600 release.keystore
       - name: Build signed release APK and signed release AAB
         working-directory: gradle
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo 'Missing Android signing secrets'; exit 1; }
+          test -s release.keystore
+          test -s signing.properties
           chmod +x gradlew
           ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
           mkdir -p release-out
