@@ -17,6 +17,19 @@ object LocalModelBridge {
     private var loadedPath: String? = null
 
     @JvmStatic
+    fun startNewConversation() {
+        scope.launch {
+            val e = engine ?: return@launch
+            try {
+                if (e.state.value is State.ModelReady || e.state.value is State.Error) {
+                    e.cleanUp()
+                    loadedPath = null
+                }
+            } catch (_: IllegalStateException) { }
+        }
+    }
+
+    @JvmStatic
     fun generate(context: Context, path: String, systemPrompt: String, prompt: String, callback: Callback) {
         scope.launch {
             try {

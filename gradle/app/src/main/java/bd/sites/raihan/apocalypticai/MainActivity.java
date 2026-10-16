@@ -9,6 +9,7 @@ import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.PictureDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -17,7 +18,7 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -29,6 +30,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.arm.aichat.LocalModelBridge;
+import com.caverock.androidsvg.SVG;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -51,10 +53,12 @@ public class MainActivity extends Activity {
 
     private static final String PREFS = "apocalyptic_ai_prefs";
     private static final String CHAT_KEY = "chat_messages_v2";
+    private static final String HISTORY_KEY = "chat_history_v1";
     private static final String DOWNLOAD_KEY = "model_download_id";
     private static final String MODEL_FILE = "Llama-3.2-1B-Instruct-Q4_0_4_4.gguf";
     private static final String MODEL_URL = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_0_4_4.gguf?download=true";
     private static final String SYSTEM_PROMPT = "You are Apocalyptic AI, a privacy-first offline survival assistant. Apocalyptic AI is the app and primary brand. You run locally using the open-weight Meta LLaMA 3.2 1B model under the Llama 3.2 Community License. Identify yourself as Apocalyptic AI first and credit Meta LLaMA 3.2 1B when model attribution is relevant. Give cautious, lawful, non-violent preparedness guidance. Never provide instructions for weapons, explosives, traps, or harming people. Encourage local emergency services and trained medical care when appropriate.";
+    private static final String[] KIT_ITEMS = {"Safe drinking water", "Water treatment method", "Shelf-stable food", "First-aid kit", "Essential medicines", "Warm and rain layers", "Light and spare power", "Paper map and compass", "Whistle or signal", "Repair kit and cordage", "Hygiene supplies", "Emergency contacts and plan"};
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayList<ChatMessage> chat = new ArrayList<>();
@@ -69,10 +73,14 @@ public class MainActivity extends Activity {
     private TextView modelProgressText;
     private TextView modelPageStatus;
     private TextView modelAction;
+    private TextView checklistCountLabel;
+    private ProgressBar checklistProgress;
     private String activeTab = "chat";
     private String activeTopicId;
+    private boolean checklistOpen;
     private long downloadId = -1L;
     private boolean isGenerating;
+    private boolean restoreHistoryContext;
     private int onboardingPage;
 
     private final Runnable downloadPoller = new Runnable() {
@@ -261,12 +269,16 @@ public class MainActivity extends Activity {
         menu.getMenu().add(0, 3, 2, "Model download");
         menu.getMenu().add(0, 4, 3, "Settings");
         menu.getMenu().add(0, 5, 4, "About Apocalyptic AI");
+        menu.getMenu().add(0, 6, 5, "Recent chats");
+        menu.getMenu().add(0, 7, 6, "My go-bag checklist");
         menu.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == 1) newChat();
-            else if (item.getItemId() == 2) { activeTab = "library"; activeTopicId = null; showMain(); }
-            else if (item.getItemId() == 3) { activeTab = "model"; activeTopicId = null; showMain(); }
-            else if (item.getItemId() == 4) { activeTab = "settings"; activeTopicId = null; showMain(); }
+            else if (item.getItemId() == 2) { activeTab = "library"; activeTopicId = null; checklistOpen = false; showMain(); }
+            else if (item.getItemId() == 3) { activeTab = "model"; activeTopicId = null; checklistOpen = false; showMain(); }
+            else if (item.getItemId() == 4) { activeTab = "settings"; activeTopicId = null; checklistOpen = false; showMain(); }
             else if (item.getItemId() == 5) showAbout();
+            else if (item.getItemId() == 6) openHistory();
+            else if (item.getItemId() == 7) openChecklist();
             return true;
         });
         menu.show();
@@ -274,7 +286,8 @@ public class MainActivity extends Activity {
 
     private void renderPage() {
         pageBody.removeAllViews();
-        if (activeTopicId != null) renderTopicDetail();
+        if (checklistOpen) renderChecklist();
+        else if (activeTopicId != null) renderTopicDetail();
         else if ("chat".equals(activeTab)) renderChat();
         else if ("library".equals(activeTab)) renderLibrary();
         else if ("model".equals(activeTab)) renderModel();
@@ -287,30 +300,43 @@ public class MainActivity extends Activity {
         nav.setBackgroundColor(Color.WHITE);
         nav.setPadding(0, dp(7), 0, dp(10));
         nav.setElevation(dp(8));
-        addNavItem(nav, "chat", "Chat", R.drawable.ic_nav_chat);
-        addNavItem(nav, "library", "Library", R.drawable.ic_nav_library);
-        addNavItem(nav, "model", "Model", R.drawable.ic_nav_model);
-        addNavItem(nav, "settings", "Settings", R.drawable.ic_nav_settings);
+        addNavItem(nav, "chat", "Chat", "chat.svg", R.drawable.ic_nav_chat);
+        addNavItem(nav, "library", "Library", "library.svg", R.drawable.ic_nav_library);
+        addNavItem(nav, "model", "Model", "model.svg", R.drawable.ic_nav_model);
+        addNavItem(nav, "settings", "Settings", "settings.svg", R.drawable.ic_nav_settings);
         return nav;
     }
 
-    private void addNavItem(LinearLayout nav, String id, String title, int iconResource) {
+    private void addNavItem(LinearLayout nav, String id, String title, String svgAsset, int iconResource) {
         boolean selected = activeTopicId == null && activeTab.equals(id);
         LinearLayout item = new LinearLayout(this);
         item.setGravity(Gravity.CENTER);
         item.setOrientation(LinearLayout.VERTICAL);
         item.setPadding(0, dp(4), 0, dp(1));
         ImageView icon = new ImageView(this);
-        icon.setImageResource(iconResource);
-        icon.setColorFilter(selected ? GREEN : MUTED);
+        setSvgIcon(icon, svgAsset, iconResource, selected ? GREEN : MUTED);
         icon.setContentDescription(title);
         item.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(26)));
         TextView name = label(title, 11, selected ? GREEN_DARK : MUTED);
         if (selected) name.setTypeface(null, Typeface.BOLD);
         name.setGravity(Gravity.CENTER);
         item.addView(name, new LinearLayout.LayoutParams(-1, dp(20)));
-        item.setOnClickListener(v -> { activeTopicId = null; activeTab = id; showMain(); });
+        item.setOnClickListener(v -> { activeTopicId = null; checklistOpen = false; activeTab = id; showMain(); });
         nav.addView(item, new LinearLayout.LayoutParams(0, dp(53), 1));
+    }
+
+    private void setSvgIcon(ImageView target, String assetName, int fallbackResource, int tint) {
+        try {
+            SVG svg = SVG.getFromAsset(getAssets(), "icons/" + assetName);
+            svg.setDocumentWidth(dp(24));
+            svg.setDocumentHeight(dp(24));
+            PictureDrawable drawable = new PictureDrawable(svg.renderToPicture());
+            drawable.setBounds(0, 0, dp(24), dp(24));
+            target.setImageDrawable(drawable);
+        } catch (Exception ignored) {
+            target.setImageResource(fallbackResource);
+        }
+        target.setColorFilter(tint);
     }
 
     private void renderChat() {
@@ -405,6 +431,28 @@ public class MainActivity extends Activity {
         subParams.topMargin = dp(4);
         subParams.bottomMargin = dp(14);
         pageBody.addView(subtitle, subParams);
+        LinearLayout kitCard = card();
+        kitCard.setOrientation(LinearLayout.HORIZONTAL);
+        kitCard.setGravity(Gravity.CENTER_VERTICAL);
+        TextView kitMark = label("✓", 20, GREEN);
+        kitMark.setGravity(Gravity.CENTER);
+        kitMark.setBackground(round(GREEN_SOFT, 13));
+        kitCard.addView(kitMark, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        LinearLayout kitText = new LinearLayout(this);
+        kitText.setOrientation(LinearLayout.VERTICAL);
+        TextView kitTitle = label("My go-bag checklist", 14, INK);
+        kitTitle.setTypeface(null, Typeface.BOLD);
+        kitText.addView(kitTitle);
+        TextView kitCount = label(checklistSummary(), 12, MUTED);
+        LinearLayout.LayoutParams kitCountParams = new LinearLayout.LayoutParams(-1, -2);
+        kitCountParams.topMargin = dp(3);
+        kitText.addView(kitCount, kitCountParams);
+        LinearLayout.LayoutParams kitTextParams = new LinearLayout.LayoutParams(0, -2, 1);
+        kitTextParams.leftMargin = dp(11);
+        kitCard.addView(kitText, kitTextParams);
+        kitCard.addView(label("›", 22, MUTED));
+        kitCard.setOnClickListener(v -> openChecklist());
+        pageBody.addView(kitCard);
         librarySearch = new EditText(this);
         librarySearch.setSingleLine(true);
         librarySearch.setTextSize(14);
@@ -431,6 +479,97 @@ public class MainActivity extends Activity {
             }
             @Override public void afterTextChanged(android.text.Editable s) {}
         });
+    }
+
+    private void renderChecklist() {
+        TextView back = label("‹   Library", 14, GREEN_DARK);
+        back.setPadding(0, dp(5), 0, dp(12));
+        back.setOnClickListener(v -> { checklistOpen = false; renderPage(); });
+        pageBody.addView(back);
+        TextView title = label("My go-bag", 25, INK);
+        title.setTypeface(null, Typeface.BOLD);
+        pageBody.addView(title);
+        TextView subtitle = label("A personal checklist, saved only on this device.", 13, MUTED);
+        LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(-1, -2);
+        subtitleParams.topMargin = dp(4);
+        subtitleParams.bottomMargin = dp(12);
+        pageBody.addView(subtitle, subtitleParams);
+
+        LinearLayout summary = card();
+        checklistCountLabel = label(checklistSummary(), 14, GREEN_DARK);
+        checklistCountLabel.setTypeface(null, Typeface.BOLD);
+        summary.addView(checklistCountLabel);
+        checklistProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        checklistProgress.setMax(KIT_ITEMS.length);
+        checklistProgress.setProgressTintList(android.content.res.ColorStateList.valueOf(GREEN));
+        checklistProgress.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(BORDER));
+        checklistProgress.setProgress(checklistCompletedCount());
+        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(-1, dp(7));
+        progressParams.topMargin = dp(10);
+        summary.addView(checklistProgress, progressParams);
+        pageBody.addView(summary);
+
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout checklist = new LinearLayout(this);
+        checklist.setOrientation(LinearLayout.VERTICAL);
+        checklist.setPadding(0, dp(3), 0, dp(10));
+        for (int i = 0; i < KIT_ITEMS.length; i++) {
+            final int itemIndex = i;
+            CheckBox item = new CheckBox(this);
+            item.setText(KIT_ITEMS[i]);
+            item.setTextColor(INK);
+            item.setTextSize(14);
+            item.setButtonTintList(android.content.res.ColorStateList.valueOf(GREEN));
+            item.setPadding(dp(12), dp(6), dp(12), dp(6));
+            item.setBackground(round(Color.WHITE, 12));
+            item.setChecked(getPreferences(MODE_PRIVATE).getBoolean("kit_checked_" + i, false));
+            item.setOnCheckedChangeListener((button, checked) -> {
+                getPreferences(MODE_PRIVATE).edit().putBoolean("kit_checked_" + itemIndex, checked).apply();
+                updateChecklistProgress();
+            });
+            LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(-1, -2);
+            itemParams.bottomMargin = dp(7);
+            checklist.addView(item, itemParams);
+        }
+        scroll.addView(checklist);
+        pageBody.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        TextView reset = action("Reset checklist", false);
+        LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(-1, dp(48));
+        resetParams.topMargin = dp(6);
+        resetParams.bottomMargin = dp(8);
+        pageBody.addView(reset, resetParams);
+        reset.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Reset your checklist?")
+                .setMessage("All check marks will be cleared on this device.")
+                .setNegativeButton("Keep it", null)
+                .setPositiveButton("Reset", (d, w) -> {
+                    android.content.SharedPreferences.Editor editor = getPreferences(MODE_PRIVATE).edit();
+                    for (int i = 0; i < KIT_ITEMS.length; i++) editor.remove("kit_checked_" + i);
+                    editor.apply();
+                    renderPage();
+                }).show());
+    }
+
+    private int checklistCompletedCount() {
+        int count = 0;
+        for (int i = 0; i < KIT_ITEMS.length; i++) if (getPreferences(MODE_PRIVATE).getBoolean("kit_checked_" + i, false)) count++;
+        return count;
+    }
+
+    private String checklistSummary() { return checklistCompletedCount() + " of " + KIT_ITEMS.length + " items packed"; }
+
+    private void updateChecklistProgress() {
+        int count = checklistCompletedCount();
+        if (checklistCountLabel != null) checklistCountLabel.setText(count + " of " + KIT_ITEMS.length + " items packed");
+        if (checklistProgress != null) checklistProgress.setProgress(count);
+    }
+
+    private void openChecklist() {
+        activeTab = "library";
+        activeTopicId = null;
+        checklistOpen = true;
+        showMain();
     }
 
     private View topicCard(GuideTopic topic) {
@@ -736,6 +875,8 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams privacyParams = new LinearLayout.LayoutParams(-1, -2); privacyParams.topMargin = dp(7); privacy.addView(privacyText, privacyParams);
         list.addView(privacy);
 
+        list.addView(settingRow("Recent chats", "Open conversations saved on this device", v -> openHistory()));
+        list.addView(settingRow("My go-bag checklist", checklistSummary(), v -> openChecklist()));
         list.addView(settingRow("Preparedness safety", "Guidance is cautious and non-violent", v -> showSafety()));
         list.addView(settingRow("Clear this conversation", "Remove locally saved chat messages", v -> confirmClearChat()));
         list.addView(settingRow("Donate", "Support the project", v -> openDonate()));
@@ -781,7 +922,10 @@ public class MainActivity extends Activity {
         renderPage();
         final TextView replyView = lastAssistantBody();
         final StringBuilder generated = new StringBuilder();
-        LocalModelBridge.generate(this, getModelFile().getAbsolutePath(), SYSTEM_PROMPT, question, new LocalModelBridge.Callback() {
+        final boolean seedingHistory = restoreHistoryContext;
+        final String inferencePrompt = buildInferencePrompt(question, seedingHistory);
+        restoreHistoryContext = false;
+        LocalModelBridge.generate(this, getModelFile().getAbsolutePath(), SYSTEM_PROMPT, inferencePrompt, new LocalModelBridge.Callback() {
             @Override public void onToken(String token, boolean done) {
                 if (token != null) generated.append(token);
                 reply.text = generated.toString();
@@ -796,11 +940,30 @@ public class MainActivity extends Activity {
             }
             @Override public void onError(String message) {
                 isGenerating = false;
+                restoreHistoryContext = seedingHistory;
                 reply.text = "The local model could not start: " + message + "\n\nOffline guide: " + offlineAnswer(question);
                 saveChat();
                 renderPage();
             }
         });
+    }
+
+    private String buildInferencePrompt(String question, boolean includeHistory) {
+        if (!includeHistory || chat.size() < 2) return question;
+        StringBuilder transcript = new StringBuilder();
+        int end = chat.size() - 1;
+        int start = Math.max(0, end - 8);
+        for (int i = start; i < end; i++) {
+            ChatMessage message = chat.get(i);
+            if (message.text == null || message.text.trim().isEmpty()) continue;
+            String text = message.text.trim();
+            if (text.length() > 350) text = text.substring(0, 347) + "…";
+            transcript.append("user".equals(message.role) ? "User: " : "Assistant: ")
+                    .append(text).append('\n');
+        }
+        if (transcript.length() == 0) return question;
+        return "Recent conversation for context only:\n" + transcript
+                + "\nRespond to the current user message:\n" + question;
     }
 
     private TextView lastAssistantBody() {
@@ -887,6 +1050,10 @@ public class MainActivity extends Activity {
                 chat.add(new ChatMessage(item.optString("role", "assistant"), item.optString("text", "")));
             }
         } catch (Exception ignored) { chat.clear(); }
+        for (ChatMessage message : chat) {
+            if ("user".equals(message.role)) { restoreHistoryContext = true; break; }
+        }
+        if (restoreHistoryContext) LocalModelBridge.startNewConversation();
     }
 
     private void saveChat() {
@@ -903,11 +1070,85 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) { }
     }
 
+    private void archiveCurrentChat() {
+        boolean hasUserMessage = false;
+        String title = "Preparedness chat";
+        for (ChatMessage message : chat) {
+            if ("user".equals(message.role)) {
+                hasUserMessage = true;
+                title = message.text.replace('\n', ' ').trim();
+                if (title.length() > 42) title = title.substring(0, 39) + "…";
+                break;
+            }
+        }
+        if (!hasUserMessage) return;
+        try {
+            JSONArray messages = new JSONArray();
+            int start = Math.max(0, chat.size() - 80);
+            for (int i = start; i < chat.size(); i++) {
+                JSONObject item = new JSONObject();
+                item.put("role", chat.get(i).role);
+                item.put("text", chat.get(i).text);
+                messages.put(item);
+            }
+            JSONArray previous = new JSONArray(getPreferences(MODE_PRIVATE).getString(HISTORY_KEY, "[]"));
+            if (previous.length() > 0) {
+                JSONArray oldMessages = previous.getJSONObject(0).optJSONArray("messages");
+                if (oldMessages != null && oldMessages.toString().equals(messages.toString())) return;
+            }
+            JSONObject session = new JSONObject();
+            session.put("title", title.isEmpty() ? "Preparedness chat" : title);
+            session.put("savedAt", System.currentTimeMillis());
+            session.put("messages", messages);
+            JSONArray history = new JSONArray();
+            history.put(session);
+            for (int i = 0; i < Math.min(19, previous.length()); i++) history.put(previous.getJSONObject(i));
+            getPreferences(MODE_PRIVATE).edit().putString(HISTORY_KEY, history.toString()).apply();
+        } catch (Exception ignored) { }
+    }
+
+    private void openHistory() {
+        if (isGenerating) { toast("Wait for the current answer to finish first."); return; }
+        try {
+            JSONArray history = new JSONArray(getPreferences(MODE_PRIVATE).getString(HISTORY_KEY, "[]"));
+            if (history.length() == 0) { toast("No saved conversations yet. Start a chat, then tap New chat to save it."); return; }
+            String[] titles = new String[history.length()];
+            for (int i = 0; i < history.length(); i++) titles[i] = history.getJSONObject(i).optString("title", "Preparedness chat");
+            new AlertDialog.Builder(this).setTitle("Recent chats · saved on this device")
+                    .setItems(titles, (dialog, selectedIndex) -> {
+                        archiveCurrentChat();
+                        try {
+                            JSONArray messages = history.getJSONObject(selectedIndex).optJSONArray("messages");
+                            chat.clear();
+                            if (messages != null) {
+                                for (int i = 0; i < messages.length(); i++) {
+                                    JSONObject item = messages.getJSONObject(i);
+                                    chat.add(new ChatMessage(item.optString("role", "assistant"), item.optString("text", "")));
+                                }
+                            }
+                            saveChat();
+                            LocalModelBridge.startNewConversation();
+                            restoreHistoryContext = true;
+                            activeTab = "chat";
+                            activeTopicId = null;
+                            checklistOpen = false;
+                            showMain();
+                        } catch (Exception e) { toast("Could not open that saved conversation."); }
+                    })
+                    .setNegativeButton("Close", null)
+                    .show();
+        } catch (Exception e) { toast("Could not read saved chat history."); }
+    }
+
     private void newChat() {
         if (isGenerating) { toast("Wait for the current answer to finish first."); return; }
+        archiveCurrentChat();
         chat.clear();
         saveChat();
+        LocalModelBridge.startNewConversation();
+        restoreHistoryContext = false;
         activeTopicId = null;
+        checklistOpen = false;
         activeTab = "chat";
         showMain();
         toast("New chat started.");
@@ -917,7 +1158,7 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("Clear saved chat?")
                 .setMessage("This removes the locally saved conversation from this device.")
                 .setNegativeButton("Keep it", null)
-                .setPositiveButton("Clear", (d, w) -> { chat.clear(); saveChat(); activeTab = "chat"; activeTopicId = null; showMain(); })
+                .setPositiveButton("Clear", (d, w) -> { chat.clear(); saveChat(); LocalModelBridge.startNewConversation(); restoreHistoryContext = false; activeTab = "chat"; activeTopicId = null; checklistOpen = false; showMain(); })
                 .show();
     }
 
@@ -1011,6 +1252,7 @@ public class MainActivity extends Activity {
     private String safeMessage(Exception e) { return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
 
     @Override public void onBackPressed() {
+        if (checklistOpen) { checklistOpen = false; renderPage(); return; }
         if (activeTopicId != null) { activeTopicId = null; renderPage(); return; }
         if (!"chat".equals(activeTab)) { activeTab = "chat"; showMain(); return; }
         super.onBackPressed();
