@@ -275,6 +275,14 @@ internal class InferenceEngineImpl private constructor(
             }
         }
 
+    override fun cancelGeneration() {
+        _cancelGeneration = true
+    }
+
+    override fun resetCancellation() {
+        _cancelGeneration = false
+    }
+
     /**
      * Unloads the model and frees resources, or reset error states
      */

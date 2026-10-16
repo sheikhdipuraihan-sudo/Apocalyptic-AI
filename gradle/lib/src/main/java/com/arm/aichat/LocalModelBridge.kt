@@ -9,12 +9,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 object LocalModelBridge {
     interface Callback { fun onToken(token: String, done: Boolean); fun onError(message: String) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
-    private var engine: InferenceEngine? = null
+    @Volatile private var engine: InferenceEngine? = null
     private var loadedPath: String? = null
+    private val stopRequested = AtomicBoolean(false)
+    private val cancellationLock = Any()
+
+    @JvmStatic
+    fun cancelGeneration() {
+        synchronized(cancellationLock) {
+            stopRequested.set(true)
+            engine?.cancelGeneration()
+        }
+    }
 
     @JvmStatic
     fun startNewConversation() {
@@ -31,6 +42,7 @@ object LocalModelBridge {
 
     @JvmStatic
     fun generate(context: Context, path: String, systemPrompt: String, prompt: String, callback: Callback) {
+        synchronized(cancellationLock) { stopRequested.set(false) }
         scope.launch {
             try {
                 val e = engine ?: AiChat.getInferenceEngine(context.applicationContext).also { engine = it }
@@ -40,6 +52,10 @@ object LocalModelBridge {
                 }
                 var attempts = 0
                 while (e.state.value !is State.Initialized && e.state.value !is State.ModelReady) {
+                    if (stopRequested.get()) {
+                        withContext(Dispatchers.Main) { callback.onToken("", true) }
+                        return@launch
+                    }
                     val state = e.state.value
                     if (state is State.Error) {
                         e.cleanUp()
@@ -54,6 +70,18 @@ object LocalModelBridge {
                     e.loadModel(path)
                     e.setSystemPrompt(systemPrompt)
                     loadedPath = path
+                }
+                if (stopRequested.get()) {
+                    withContext(Dispatchers.Main) { callback.onToken("", true) }
+                    return@launch
+                }
+                val canStart = synchronized(cancellationLock) {
+                    if (stopRequested.get()) false
+                    else { e.resetCancellation(); true }
+                }
+                if (!canStart) {
+                    withContext(Dispatchers.Main) { callback.onToken("", true) }
+                    return@launch
                 }
                 e.sendUserPrompt(prompt, 384).collect { token -> withContext(Dispatchers.Main) { callback.onToken(token, false) } }
                 withContext(Dispatchers.Main) { callback.onToken("", true) }
