@@ -12,7 +12,7 @@ A clean, privacy-first Android field guide for offline survival planning. The ap
 
 ## Local model note
 
-This repository does not redistribute Meta’s LLaMA weights. Add a legally obtained, compatible **LLaMA 3.2 1B GGUF** file on-device with **Load model**. The current release includes the compact UI and model-file selection contract plus an offline fallback guide. For production inference, connect a llama.cpp Android/JNI runner in `LocalModelEngine` (kept intentionally separate from the UI so the optional native runtime does not inflate the base APK).
+This repository does not redistribute Meta’s LLaMA weights. Use **Download model** to open the official [Meta Llama 3.2 1B Instruct page](https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct) in the browser. Accept Meta’s Community License there and download a compatible GGUF quantization from a lawful source. The app itself has no network permission and does not silently download model weights. The current release includes the compact UI and official download handoff plus an offline fallback guide. For production inference, connect a llama.cpp Android/JNI runner in `LocalModelEngine` (kept intentionally separate from the UI so the optional native runtime does not inflate the base APK).
 
 ## Build locally
 
@@ -25,6 +25,10 @@ cd gradle
 ## GitHub Actions
 
 Every push to `main` builds `app-debug.apk` and `app-release.aab`. The AAB is uploaded as an artifact for Play Console publishing. To sign a production AAB, add `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, and `ANDROID_KEY_PASSWORD` repository secrets; otherwise the workflow creates an unsigned release bundle and clearly labels it.
+
+## Model licensing
+
+LLaMA 3.2 1B is commonly described as open-weight, but Meta distributes it under the Llama 3.2 Community License rather than an OSI-approved open-source license. Users must review and accept the applicable terms before downloading or redistributing weights.
 
 ## Content and safety
 
