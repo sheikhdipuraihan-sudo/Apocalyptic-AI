@@ -1,8 +1,20 @@
 plugins { id 'com.android.application' }
 
+def releaseKeystore = rootProject.file('release.keystore')
+def hasReleaseSigning = releaseKeystore.exists() && System.getenv('ANDROID_KEYSTORE_PASSWORD')
 android { namespace 'bd.sites.raihan.apocalypticai'; compileSdk 35
     defaultConfig { applicationId 'bd.sites.raihan.apocalypticai'; minSdk 24; targetSdk 35; versionCode 1; versionName '1.0.0' }
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile releaseKeystore
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
     dependencies { implementation project(':lib') }
-    buildTypes { release { minifyEnabled true; shrinkResources true; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' } }
+    buildTypes { release { minifyEnabled true; shrinkResources true; signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' } }
     packaging { resources { excludes += ['/META-INF/{AL2.0,LGPL2.1}'] } }
 }
