@@ -1,7 +1,19 @@
 plugins { id 'com.android.library'; id 'org.jetbrains.kotlin.android' }
-android { namespace 'com.arm.aichat'; compileSdk 35
-    defaultConfig { minSdk 24; consumerProguardFiles 'consumer-rules.pro'; ndk { abiFilters 'arm64-v8a', 'x86_64' } externalNativeBuild { cmake { arguments '-DCMAKE_BUILD_TYPE=Release', '-DGGML_NATIVE=OFF', '-DGGML_OPENMP=OFF', '-DGGML_LLAMAFILE=OFF', '-DLLAMA_OPENSSL=OFF', '-DLLAMA_BUILD_APP=OFF', '-DLLAMA_BUILD_COMMON=ON', '-DBUILD_SHARED_LIBS=ON' } } }
-    externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt'; version '3.22.1' } }
+android {
+    namespace 'com.arm.aichat'
+    compileSdk 35
+    defaultConfig {
+        minSdk 24
+        consumerProguardFiles 'consumer-rules.pro'
+        ndk { abiFilters 'arm64-v8a', 'x86_64' }
+    }
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+    buildTypes { release { minifyEnabled false } }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = '17' }
     packaging { resources { excludes += ['/META-INF/{AL2.0,LGPL2.1}'] } }

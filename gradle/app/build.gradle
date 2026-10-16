@@ -4,6 +4,5 @@ android { namespace 'bd.sites.raihan.apocalypticai'; compileSdk 35
     defaultConfig { applicationId 'bd.sites.raihan.apocalypticai'; minSdk 24; targetSdk 35; versionCode 1; versionName '1.0.0' }
     dependencies { implementation project(':lib') }
     buildTypes { release { minifyEnabled true; shrinkResources true; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' } }
-    externalNativeBuild { cmake { path '../lib/src/main/cpp/CMakeLists.txt' } }
     packaging { resources { excludes += ['/META-INF/{AL2.0,LGPL2.1}'] } }
 }
