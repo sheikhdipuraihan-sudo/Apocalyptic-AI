@@ -1,24 +1,47 @@
 # Apocalyptic AI
 
-A privacy-first Android preparedness assistant with a bundled offline guide and optional local AI. Chat runs on the selected GGUF model on the device; the app does not send chat messages to a server. Internet is used only when the user chooses to download a model.
+**A private, on-device survival and emergency-preparedness assistant.** After a user downloads a small model, chat inference runs on the Android device; chat messages are not sent to an AI server. The app does not bundle model weights. Internet access is used for a user-requested model download and for the optional donation link.
 
-## What is included
+## Product features
 
-- Responsive sidebar navigation, light/dark/system themes, conversation history, and a model picker for 360M, 0.5B, and 1B models.
-- Offline safety-first knowledge pack covering water, shelter, first aid, food safety, tools, and repairs.
-- Guardrail for weapon, explosive, and injury-trap requests; the app redirects to lawful, non-violent preparedness.
-- Donate is available from the sidebar and Settings: https://raihan.sites.bd
-- GitHub Actions workflow that builds both a debug APK and a signed-ready release AAB.
+- Full-width Android chat layout with a simple sidebar; saved conversations can be reopened or deleted from the sidebar.
+- A visible **Stop** control while the model is generating, with a cancellable native inference loop.
+- On-device chat persistence, model download progress and validation, dark/light/system appearance, and a private go-bag checklist.
+- Safety-oriented survival guidance for water, shelter, first aid, food safety, navigation, communications, and essential supplies. It rejects explicit requests for weapons, explosives, traps, and harming people.
+- Donate action opens [raihan.sites.bd](https://raihan.sites.bd).
 
-## Local model note
+## Local model choices
 
-Model weights are not bundled or redistributed by this repository. The in-app model picker offers:
+The picker defaults to the compact **Qwen3 0.6B Q4_K_M** model. The optional **SmolLM2 1.7B Q4_K_M** model is the largest offered and is intended for newer phones; 6 GB or more total RAM is recommended, and the app checks available memory before starting it. There are no 7B/13B-class downloads.
 
-- Meta LLaMA 3.2 1B Instruct, Q4_0_4_4 (about 735 MiB)
-- Qwen2.5 0.5B Instruct, Q4_K_M (about 379 MiB)
-- SmolLM2 360M Instruct, Q4_K_M (about 258 MiB)
+| Model | Quantization / approximate download | Upstream model and license | GGUF download repository |
+| --- | --- | --- | --- |
+| Qwen3 0.6B | Q4_K_M · 462 MiB | [Qwen3 0.6B](https://huggingface.co/Qwen/Qwen3-0.6B) · Apache-2.0 | [bartowski GGUF](https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF) |
+| Qwen2.5 0.5B Instruct | Q4_K_M · 379 MiB | [Qwen2.5 0.5B Instruct](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct) · Apache-2.0 | [bartowski GGUF](https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF) |
+| SmolLM2 360M Instruct | Q4_K_M · 258 MiB | [SmolLM2 360M Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct) · Apache-2.0 | [bartowski GGUF](https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF) |
+| SmolLM2 1.7B Instruct | Q4_K_M · 1.0 GiB | [SmolLM2 1.7B Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct) · Apache-2.0 | [Hugging Face Smol Models GGUF](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF) |
 
-Each download is stored in the app’s private Downloads directory and tracked by Android DownloadManager. The app checks available storage, reports transfer progress and failure reasons, and verifies the downloaded GGUF before enabling chat. Wi-Fi is recommended. The library remains available offline whether or not a model is installed.
+The model cards list the upstream model terms. Quantized files are downloaded from the linked GGUF repositories, which may be maintained by a different publisher; review **both** links, the repository license, and any applicable terms before commercial distribution. This project does not redistribute the downloaded weights and does not make a legal-clearance guarantee. Model licenses do not establish rights to all training data, trademarks, or generated output.
+
+Weights are kept in the app’s private Downloads directory and tracked with Android DownloadManager. The app checks available storage and validates the downloaded GGUF before enabling chat. Wi-Fi is recommended. The app does not send chat content to a server.
+
+## Safety and privacy
+
+- AI output can be inaccurate, incomplete, or unsafe. Do not rely on the model as an emergency service, doctor, or substitute for official local guidance. Call local emergency services when appropriate.
+- The app is a general preparedness aid, not medical, legal, or professional advice. Follow local law, official emergency instructions, and trained professional guidance.
+- Chat history and model files are stored on the device in app-private storage. Users can clear the active chat or remove downloaded models from the app. Android backup is disabled in the manifest.
+- The optional internet permission is used for model downloads and opening the donation website; it is not used to send prompts to a remote inference service.
+
+## Model attribution and third-party licenses
+
+- Qwen3 and Qwen2.5 model family/source licensing is published by [Qwen](https://huggingface.co/Qwen); the linked source model cards specify Apache-2.0.
+- SmolLM2 source model cards and the official 1.7B GGUF repository are published by [Hugging Face Smol Models](https://huggingface.co/HuggingFaceTB); the linked pages specify Apache-2.0.
+- The mobile runtime uses the pinned [`llama.cpp`](https://github.com/ggml-org/llama.cpp) submodule; its project is MIT-licensed. Other dependencies retain their own licenses—review them before distribution.
+- Model weights are downloaded by user choice and are not included in the APK/AAB.
+
+## Play Store release checklist
+
+Before publishing, verify the exact model and GGUF repository licenses and required notices, include appropriate third-party attribution in the app/store listing, prepare an accurate public privacy policy and Data safety declaration, disclose that responses are generated by an on-device AI and may be wrong, and review current Google Play policy requirements. App changes alone cannot guarantee legal clearance or Play Store approval.
 
 ## Build locally
 
@@ -32,28 +55,4 @@ cd gradle
 
 Every push to `main` builds `app-debug.apk` and `app-release.aab`. The AAB is uploaded as an artifact for Play Console publishing. To sign a production AAB, add `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, and `ANDROID_KEY_PASSWORD` repository secrets; otherwise the workflow creates an unsigned release bundle and clearly labels it.
 
-## Branding and model attribution
-
-**Apocalyptic AI** is the application name, primary identity, interface brand, and preparedness assistant persona. The selected model can be Meta LLaMA 3.2 1B, Qwen2.5 0.5B, or SmolLM2 360M. The app identifies as Apocalyptic AI and credits the selected model’s creators when attribution is relevant. Review each model’s own license and terms before use; Apocalyptic AI does not own or redistribute the model weights.
-
-The runtime system prompt is tailored to the selected model and asks it to give cautious, lawful, non-violent preparedness guidance. Messages are processed locally on the device.
-
-## Model licensing
-
-Model licenses vary. Consult the original model card and applicable license before using or redistributing downloaded weights. The app downloads community-provided GGUF quantizations and does not bundle their weights.
-
-## Content and safety
-
-The bundled summaries are original, concise notes, not full books. The references point to public-domain or openly available preparedness sources. Always follow local law, official emergency guidance, and trained medical advice.
-
-## Native local inference
-
-The app links the MIT-licensed llama.cpp runtime as a pinned source submodule. Once a selected GGUF is downloaded and verified, prompts are sent to llama.cpp locally and generated tokens are returned to the chat UI. If a model cannot load, the app reports the error rather than presenting a bundled guide answer as AI chat.
-
-## Release signing
-
-Signing keys are **not** stored in this repository. Add these repository secrets (Settings → Secrets and variables → Actions) so every build uses the same key and can update in place:
-
-`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD`
-
-Use an **RSA-2048** key. Without secrets, the workflow generates a throw-away RSA-2048 key for that build.
+Release signing keys are **not** stored in this repository. Use an RSA-2048 key and keep a secure backup of the production signing key.
