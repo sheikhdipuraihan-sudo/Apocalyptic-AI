@@ -211,6 +211,24 @@ internal class InferenceEngineImpl private constructor(
             _state.value = InferenceEngine.State.ModelReady
         }
 
+    override suspend fun resetConversation(systemPrompt: String) =
+        withContext(llamaDispatcher) {
+            require(systemPrompt.isNotBlank()) { "Cannot process empty system prompt!" }
+            check(_state.value is InferenceEngine.State.ModelReady) {
+                "Cannot reset conversation in ${_state.value.javaClass.simpleName}!"
+            }
+            _state.value = InferenceEngine.State.ProcessingSystemPrompt
+            processSystemPrompt(systemPrompt).let { result ->
+                if (result != 0) {
+                    RuntimeException("Failed to reset conversation: $result").also {
+                        _state.value = InferenceEngine.State.Error(it)
+                        throw it
+                    }
+                }
+            }
+            _state.value = InferenceEngine.State.ModelReady
+        }
+
     /**
      * Send plain text user prompt to LLM, which starts generating tokens in a [Flow]
      */

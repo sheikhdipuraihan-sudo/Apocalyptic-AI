@@ -1,0 +1,39 @@
+APOCALYPTIC AI — PRIVACY POLICY
+Effective date: October 16, 2026
+
+ABOUT THIS POLICY
+This policy describes Apocalyptic AI for Android and the data handling implemented in this app version. The app is a local-model preparedness assistant. Publisher/privacy contact: raihan.sites.bd. This project does not create an account or operate a cloud AI inference service, advertising network, or analytics service.
+
+WHAT THE APP STORES ON YOUR DEVICE
+• Chat messages and saved conversations are stored in the app's private storage so you can reopen them. The selected on-device model processes your prompts and generates replies locally.
+• Checklist state, appearance and generation preferences, selected model, and download status are stored in app preferences.
+• Downloaded model files are stored in app-specific storage. Android backup is disabled. You can clear conversations or remove model files from the app; uninstalling removes app-private data, subject to Android/device behavior.
+• The app does not intentionally collect account details, contacts, location, camera data, or payment-card details.
+
+OPTIONAL HOST AI — LOCAL BROWSER CHAT
+Host AI is off until you start it. When enabled, this phone runs a small HTTP server bound to its private Wi-Fi or phone-hotspot IPv4 address. A friend must be connected to that local network and have the temporary share link/code. The phone uses its downloaded model to answer; chat prompts are not forwarded to a cloud AI or internet relay, and the host does not open a public URL or make an outbound internet connection for chat.
+
+Browser messages are processed temporarily in memory and are not added to the app's saved conversation history. The temporary host code and status are stored in app-private preferences while hosting and are removed when hosting stops. The browser page keeps its conversation only for that page session. Stop hosting to revoke the code and close the local server.
+
+Important network security limit: local browser chat uses HTTP, not encrypted HTTPS. Other people or devices with access to the same network may be able to observe traffic. A private-network access code is not encryption. Only share the link with people you trust, use a network you trust, and do not send sensitive information through the hosted page. Some phone hotspots block communication between connected devices. The app cannot control the privacy practices of people who receive a link or the security of the local network.
+
+VOICE FEATURES
+Voice input is optional and starts only after you tap the microphone and grant microphone permission. On supported Android versions, the app requests Android's on-device speech recognizer to transcribe audio into draft text. The app does not send recorded audio to its own server. Speech recognition availability and the system service's handling depend on Android and the speech model installed on your device. Spoken replies are optional and use the Android text-to-speech engine and voice installed on your device; that engine's offline behavior and data practices are controlled by the device/provider.
+
+NETWORK AND THIRD-PARTY SERVICES
+The app uses Android DownloadManager to download a model only after you choose one. The selected model host and content-delivery provider may receive ordinary connection information such as your IP address, requested file, and request time; their terms and privacy policies apply. Choosing Donate opens raihan.sites.bd in an external browser, which is subject to that website's and browser's own practices. The local Host AI service is not a cloud relay. Third-party model files and libraries are identified in the app's Open-source notices and project documentation.
+
+PERMISSIONS
+Internet access is used for user-requested model downloads, opening the donation website, and local socket operation for Host AI. Microphone permission is requested only for voice input. Host AI uses a foreground service and visible notification, and Android 13 or newer may ask for notification permission before hosting starts. Wi-Fi state, wake-lock, and foreground-service permissions support the user-started host. The app does not request location, contacts, camera, or phone-state permissions.
+
+RETENTION AND DELETION
+Saved app conversations and preferences remain on the device until you remove them, clear app data, or uninstall the app. Downloaded model files remain until removed in the app or until app data is cleared/uninstalled. Host AI browser messages are not written to the app's saved chat history; the active page session and temporary access code are cleared when the host/page session ends, except that a browser may retain its own normal network/cache records. Android backup is disabled.
+
+AI AND SAFETY NOTICE
+AI-generated responses can be inaccurate, incomplete, outdated, or unsafe. The app is an educational preparedness aid, not an emergency service and not medical, legal, financial, or other professional advice. Do not rely on it for urgent decisions. Follow local law, official emergency instructions, and qualified professional guidance; contact emergency services when appropriate. You are responsible for deciding whether and how to use or share AI output. Nothing in this policy limits rights that cannot legally be limited.
+
+CHILDREN AND CONTACT
+The app is not designed as a children's service. For questions or privacy requests, contact the publisher through raihan.sites.bd. This app has no user accounts, so there is no account deletion process; deleting local conversations, removing downloads, clearing app data, or uninstalling are the available local controls.
+
+CHANGES
+This policy should be updated whenever the app's data practices change. The in-app copy describes this build; the publisher should keep any public privacy-policy URL and Google Play Data safety declarations consistent with the released version.

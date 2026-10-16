@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>Apocalyptic AI · Local host</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0d1311;--panel:#141d19;--panel2:#1a2621;--line:#293831;--ink:#edf5ef;--muted:#9aada1;--green:#6bd39b;--green-dark:#123b29;--user:#1b392b;--danger:#ffb6a9;--shadow:0 18px 48px #0005;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 15% 0%,#1c3428 0,transparent 38%),var(--bg);color:var(--ink);display:flex;justify-content:center;padding:clamp(12px,3vw,28px)}
+    .app{width:min(850px,100%);min-height:calc(100vh - 24px);display:flex;flex-direction:column;border:1px solid var(--line);border-radius:24px;background:#111915eF;box-shadow:var(--shadow);overflow:hidden;animation:enter .28s ease-out both}
+    header{display:flex;align-items:center;gap:13px;padding:18px clamp(16px,4vw,28px);border-bottom:1px solid var(--line);background:#121b17}
+    .mark{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;color:#092216;background:linear-gradient(145deg,#8ce6b0,#4db981);font-weight:900;font-size:17px;box-shadow:0 7px 20px #55c88938}
+    .brand{min-width:0;flex:1}.brand h1{font-size:16px;line-height:1.2;margin:0;font-weight:760;letter-spacing:-.02em}.brand p{margin:4px 0 0;color:var(--muted);font-size:12px}
+    .badge{white-space:nowrap;border:1px solid #325441;border-radius:99px;padding:7px 10px;color:#a8e8c1;background:#173224;font-size:11px;font-weight:700;letter-spacing:.02em;display:flex;align-items:center;gap:7px}.dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.8s ease-in-out infinite}
+    .notice{margin:14px clamp(14px,4vw,24px) 2px;padding:11px 13px;border:1px solid #2b4035;border-radius:14px;background:#14221a;color:#bad1c2;font-size:12px;line-height:1.5}.notice strong{color:#e2f4e8}
+    #messages{flex:1;display:flex;flex-direction:column;gap:12px;padding:18px clamp(14px,4vw,24px);overflow-y:auto;min-height:240px;scroll-behavior:smooth}
+    .empty{margin:auto;text-align:center;max-width:390px;color:var(--muted);font-size:14px;line-height:1.65;padding:25px}.empty strong{display:block;color:var(--ink);font-size:18px;margin-bottom:7px;letter-spacing:-.02em}
+    .message{max-width:min(82%,650px);padding:12px 14px;border:1px solid var(--line);border-radius:17px;background:var(--panel);line-height:1.58;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere;animation:message-in .18s ease-out both}.message.user{align-self:flex-end;border-color:#28583d;background:var(--user);border-bottom-right-radius:6px}.message.assistant{align-self:flex-start;border-bottom-left-radius:6px}.message .who{display:block;margin-bottom:5px;color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.08em}.message.user .who{color:#a8e8c1}.message.assistant .who{color:#b9cabe}
+    .composer-wrap{padding:12px clamp(12px,3vw,20px) max(14px,env(safe-area-inset-bottom));border-top:1px solid var(--line);background:#101713}.composer{display:flex;align-items:flex-end;gap:10px;padding:8px 8px 8px 14px;border:1px solid #34463b;border-radius:18px;background:#18211c;transition:border-color .18s,box-shadow .18s}.composer:focus-within{border-color:#62c58d;box-shadow:0 0 0 3px #52c88522}textarea{font:inherit;resize:none;flex:1;min-height:42px;max-height:140px;border:0;outline:0;background:transparent;color:var(--ink);padding:10px 0;line-height:1.4}textarea::placeholder{color:#829589}.send{width:44px;height:44px;flex:0 0 44px;border:0;border-radius:14px;background:var(--green);color:#092116;font-size:20px;font-weight:800;cursor:pointer;transition:transform .14s,filter .14s,opacity .14s}.send:hover{filter:brightness(1.07);transform:translateY(-1px)}.send:active{transform:scale(.96)}.send:disabled{opacity:.52;cursor:wait;transform:none}.hint{padding:8px 5px 0;color:#84958a;font-size:11px;display:flex;justify-content:space-between;gap:8px}.status{min-height:16px;color:var(--muted);font-size:12px;padding:0 5px 7px}.status.error{color:var(--danger)}
+    .access{display:none;position:fixed;inset:0;z-index:3;background:#090e0cdd;backdrop-filter:blur(8px);padding:20px;place-items:center}.access.show{display:grid;animation:enter .18s ease-out both}.access-card{width:min(420px,100%);padding:22px;border:1px solid var(--line);border-radius:22px;background:var(--panel);box-shadow:var(--shadow)}.access-card h2{margin:0 0 7px;font-size:19px}.access-card p{margin:0 0 16px;color:var(--muted);font-size:13px;line-height:1.5}.access-row{display:flex;gap:8px}.access-row input{min-width:0;flex:1;border:1px solid var(--line);border-radius:12px;background:#0e1511;color:var(--ink);padding:12px;font:inherit}.access-row button{border:0;border-radius:12px;padding:0 15px;background:var(--green);color:#082116;font-weight:800;cursor:pointer}.foot{text-align:center;color:#718277;font-size:10px;padding:0 12px 12px}
+    @keyframes enter{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}@keyframes message-in{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 #6bd39b55}50%{opacity:.65;box-shadow:0 0 0 5px #6bd39b00}}
+    @media(max-width:560px){body{padding:0}.app{min-height:100vh;border:0;border-radius:0}.badge{font-size:10px;padding:6px 8px}.message{max-width:90%}.notice{margin-top:10px}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div class="mark" aria-hidden="true">A</div>
+      <div class="brand"><h1>Apocalyptic AI</h1><p>Browser chat · runs on the host phone</p></div>
+      <div class="badge"><span class="dot"></span>LOCAL NETWORK</div>
+    </header>
+    <div class="notice"><strong>Wi‑Fi / hotspot only.</strong> Your messages go to the host phone over this local network and are answered by its on-device model. There is no cloud AI or internet relay. You and the host must be on the same network.</div>
+    <section id="messages" aria-live="polite" aria-label="Conversation">
+      <div class="empty" id="empty"><strong>Ask the phone’s local AI</strong>Send a message to start. Replies stream in as the phone generates them.</div>
+    </section>
+    <div class="composer-wrap">
+      <div class="status" id="status" aria-live="polite"></div>
+      <form id="form" class="composer">
+        <textarea id="message" rows="1" maxlength="3000" placeholder="Message the local AI…" aria-label="Message" required></textarea>
+        <button class="send" id="send" type="submit" aria-label="Send message" title="Send">↑</button>
+      </form>
+      <div class="hint"><span>Enter to send · Shift+Enter for a new line</span><span id="counter">0 / 3000</span></div>
+    </div>
+    <div class="foot">A private link code controls access. Only share it with people you trust on this network.</div>
+  </main>
+  <div class="access" id="access" role="dialog" aria-modal="true" aria-labelledby="access-title">
+    <div class="access-card">
+      <h2 id="access-title">Enter the host link code</h2>
+      <p>Open the complete share link from the phone owner, or paste its code here. You must be on the same Wi‑Fi or phone hotspot.</p>
+      <form id="access-form" class="access-row"><input id="access-key" autocomplete="off" placeholder="Share code" aria-label="Share code" required><button type="submit">Connect</button></form>
+    </div>
+  </div>
+  <script>
+    (()=>{
+      const messagesEl=document.getElementById('messages'), form=document.getElementById('form'), input=document.getElementById('message'), send=document.getElementById('send'), status=document.getElementById('status'), access=document.getElementById('access'), accessForm=document.getElementById('access-form'), accessInput=document.getElementById('access-key'), counter=document.getElementById('counter');
+      let key=new URLSearchParams(location.hash.slice(1)).get('key')||sessionStorage.getItem('apocalyptic-host-key')||'';
+      const history=[];
+      const updateAccess=()=>{access.classList.toggle('show',!key);if(!key)setTimeout(()=>accessInput.focus(),50)};
+      const setKey=value=>{key=value.trim();if(key)sessionStorage.setItem('apocalyptic-host-key',key);else sessionStorage.removeItem('apocalyptic-host-key');updateAccess()};
+      updateAccess();
+      function bubble(role,text){const empty=document.getElementById('empty');if(empty)empty.remove();const el=document.createElement('div');el.className='message '+role;const who=document.createElement('span');who.className='who';who.textContent=role==='user'?'YOU':'LOCAL AI';const body=document.createElement('span');body.textContent=text||'';el.append(who,body);messagesEl.append(el);messagesEl.scrollTop=messagesEl.scrollHeight;return body}
+      input.addEventListener('input',()=>{counter.textContent=input.value.length+' / 3000';input.style.height='auto';input.style.height=Math.min(input.scrollHeight,140)+'px'});
+      accessForm.addEventListener('submit',event=>{event.preventDefault();setKey(accessInput.value)});
+      form.addEventListener('submit',async event=>{
+        event.preventDefault();const text=input.value.trim();if(!text||!key||send.disabled)return;
+        const prior=history.slice(-8);bubble('user',text);history.push({role:'user',content:text});input.value='';input.style.height='auto';counter.textContent='0 / 3000';send.disabled=true;status.classList.remove('error');status.textContent='Connecting to the phone…';
+        const answer=bubble('assistant','');let answerText='';
+        try{
+          const response=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({message:text,history:prior})});
+          if(!response.ok){let error='The phone could not accept this message.';try{error=(await response.json()).error||error}catch(_){}if(response.status===401){setKey('');accessInput.focus()}throw new Error(error)}
+          if(!response.body)throw new Error('Streaming responses are not supported by this browser.');
+          status.textContent='The phone is thinking…';const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
+          while(true){const part=await reader.read();if(part.done)break;buffer+=decoder.decode(part.value,{stream:true});let cut;
+            while((cut=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,cut).trim();buffer=buffer.slice(cut+1);if(!line)continue;let item;try{item=JSON.parse(line)}catch(_){continue}if(item.ping)continue;if(item.error)throw new Error(item.error);if(item.token){answerText+=item.token;answer.textContent=answerText;messagesEl.scrollTop=messagesEl.scrollHeight}if(item.done)status.textContent=''}
+          }
+          if(answerText.trim())history.push({role:'assistant',content:answerText});else answer.textContent='No visible answer was returned. Try again.';
+          status.textContent='';
+        }catch(error){status.textContent=error.message||'Connection failed. Check that you are on the same Wi‑Fi or hotspot.';status.classList.add('error');if(!answerText)answer.textContent='No response received. Check the status message above and try again.';}
+        finally{send.disabled=false;input.focus()}
+      });
+      input.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();form.requestSubmit()}});
+    })();
+  </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # Apocalyptic AI
 
-**A private, on-device survival and emergency-preparedness assistant.** After a user downloads a small model, chat inference runs on the Android device; chat messages are not sent to an AI server. The app does not bundle model weights. Internet access is used for a user-requested model download and for the optional donation link.
+**A private, on-device survival and emergency-preparedness assistant.** After a user downloads a small model, inference runs on the Android device. Optional Host AI serves a browser chat page to devices on the same Wi-Fi or phone hotspot; it does not use a public URL, cloud AI, or a relay. The app does not bundle model weights. Outbound internet access is used for a user-requested model download and for the optional donation link.
 
 ## Product features
 
@@ -9,6 +9,8 @@
 - A visible **Stop** control while the model is generating, with a cancellable native inference loop.
 - On-device chat persistence, model download progress and validation, dark/light/system appearance, and a private go-bag checklist.
 - Working inference controls: response length, context window, sampling temperature, custom persona/style instructions, restored-chat context, and optional background model unloading.
+- A user-started **Host AI** mode with a simple browser chat page, streaming replies, copy/share link actions, a temporary access code, and a visible Stop control. The server binds only to a private Wi-Fi/hotspot IPv4 address and refuses non-private peers; guests must be on the same network.
+- A full **Privacy Policy** and AI/safety notice available inside Settings. First-use voice and each Host AI start show a clear data-flow disclosure before requesting sensitive access or opening the local server.
 - Subtle screen transitions with a reduced-motion switch. GGUF chat templates are read from model metadata; the Android native build currently uses CPU backends only.
 - Safety-oriented survival guidance for water, shelter, first aid, food safety, navigation, communications, and essential supplies. It rejects explicit requests for weapons, explosives, traps, and harming people.
 - Donate action opens [raihan.sites.bd](https://raihan.sites.bd).
@@ -27,14 +29,14 @@ The picker defaults to **TituLM 1B MPT Q4_K_M**, a compact Bangla/English model.
 
 The model cards list the upstream model terms. Quantized files are downloaded from the linked GGUF repositories, which may be maintained by a different publisher; review **both** links, the repository license, and any applicable terms before commercial distribution. TituLM MPT 1B is distinct from the TituLLM Llama 3.2 1B variant. This project does not redistribute the downloaded weights and does not make a legal-clearance guarantee. Model licenses do not establish rights to all training data, trademarks, or generated output.
 
-Weights are kept in the app’s private Downloads directory and tracked with Android DownloadManager. The app checks available storage and validates the downloaded GGUF before enabling chat. Wi-Fi is recommended. The app does not send chat content to a server.
+Weights are kept in the app’s private Downloads directory and tracked with Android DownloadManager. The app checks available storage and validates the downloaded GGUF before enabling chat. Wi-Fi is recommended. The app does not send chat content to a cloud inference server. In Host AI mode, browser messages travel over the local Wi-Fi/hotspot network to this phone and are answered by its local model. The temporary browser session is not saved to the app’s chat history. The local HTTP connection is not encrypted, so only share the link with trusted people on a trusted network.
 
 ## Safety and privacy
 
 - AI output can be inaccurate, incomplete, or unsafe. Do not rely on the model as an emergency service, doctor, or substitute for official local guidance. Call local emergency services when appropriate.
 - The app is a general preparedness aid, not medical, legal, or professional advice. Follow local law, official emergency instructions, and trained professional guidance.
 - Chat history and model files are stored on the device in app-private storage. Users can clear the active chat or remove downloaded models from the app. Android backup is disabled in the manifest.
-- The optional internet permission is used for model downloads and opening the donation website; it is not used to send prompts to a remote inference service.
+- The app uses outbound internet for model downloads and opening the donation website; it does not send prompts to a remote inference service. Host AI accepts local-network connections only and does not contact an internet relay.
 - Microphone access is requested only after the user taps Mic. Voice recognition uses the device's on-device speech service; spoken replies use the installed system TTS engine, whose offline behavior depends on the selected voice.
 
 ## Model attribution and third-party licenses
@@ -46,7 +48,7 @@ Weights are kept in the app’s private Downloads directory and tracked with And
 
 ## Play Store release checklist
 
-Before publishing, verify the exact model and GGUF repository licenses and required notices, include appropriate third-party attribution in the app/store listing, prepare an accurate public privacy policy and Data safety declaration, disclose that responses are generated by an on-device AI and may be wrong, and review current Google Play policy requirements. App changes alone cannot guarantee legal clearance or Play Store approval.
+Before publishing the AAB, verify the exact model and GGUF repository licenses and required notices, include appropriate third-party attribution in the app/store listing, host the privacy policy at an active public URL (the in-app copy alone is not enough), and complete an accurate Play Console Data safety form. For Android 14+ targets, declare the foreground-service type in Play Console and provide the requested use-case description, user impact, and demo video. Disclose that responses are generated by an on-device AI and may be wrong, accurately answer target-audience and other declarations, and review current Play policy. A public source-code repository is not required to upload an AAB. App changes and disclaimers cannot guarantee legal immunity or Play Store approval; get jurisdiction-specific legal review where appropriate.
 
 ## Build locally
 
