@@ -59,6 +59,6 @@ cd gradle
 
 ## GitHub Actions
 
-Every push to `main` triggers the release workflow, which builds an APK and AAB and publishes them as a GitHub prerelease. Configure `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, and `ANDROID_KEY_PASSWORD` repository secrets with a persistent upload key before relying on the AAB for Play. If those secrets are absent, the workflow generates a throw-away signing key; do not use that fallback for a production Play release or future updates.
+Every push to `main` triggers the release workflow, which builds an APK and AAB and publishes them as a GitHub prerelease. Configure `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, and `ANDROID_KEY_PASSWORD` repository secrets with a persistent upload key. The workflow now fails before building or publishing if any signing secret is missing or the keystore cannot be decoded; it never generates a temporary key.
 
 Release signing keys are **not** stored in this repository. Keep a secure backup of the long-lived upload key.

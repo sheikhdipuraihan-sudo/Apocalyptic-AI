@@ -28,25 +28,26 @@ jobs:
           KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -n "$KS_B64" ] && [ -n "$KS_ALIAS" ] && [ -n "$KS_PASS" ]; then
-            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
-            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_ALIAS=$KS_ALIAS" >> "$GITHUB_ENV"
-            echo "ANDROID_KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_PASSWORD=${KEY_PASS:-$KS_PASS}" >> "$GITHUB_ENV"
-            echo "Using the keystore from repository secrets."
-          else
-            echo "::warning::No signing secrets set. Generating a throw-away RSA-2048 key. The APK installs fine, but each build has a different signature, so uninstall the old version before installing a new one."
-            P=$(openssl rand -hex 16)
-            keytool -genkeypair -keystore "$RUNNER_TEMP/release.keystore" -storetype PKCS12 \
-              -alias apocalyptic-ai -keyalg RSA -keysize 2048 -sigalg SHA256withRSA -validity 10000 \
-              -dname "CN=Apocalyptic AI, O=Apocalyptic AI, C=BD" -storepass "$P" -keypass "$P"
-            echo "::add-mask::$P"
-            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_ALIAS=apocalyptic-ai" >> "$GITHUB_ENV"
-            echo "ANDROID_KEYSTORE_PASSWORD=$P" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_PASSWORD=$P" >> "$GITHUB_ENV"
+          set -euo pipefail
+          if [ -z "${KS_B64:-}" ] || [ -z "${KS_ALIAS:-}" ] || [ -z "${KS_PASS:-}" ] || [ -z "${KEY_PASS:-}" ]; then
+            echo "::error::All four Android signing secrets must be configured. Refusing to build or publish with a temporary key."
+            exit 1
           fi
+          umask 077
+          KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
+          if ! printf '%s' "$KS_B64" | base64 --decode > "$KEYSTORE_PATH"; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not valid Base64. Refusing to build or publish."
+            exit 1
+          fi
+          if [ ! -s "$KEYSTORE_PATH" ]; then
+            echo "::error::Decoded Android keystore is empty. Refusing to build or publish."
+            exit 1
+          fi
+          printf '%s\n' "ANDROID_KEYSTORE_FILE=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+          printf '%s\n' "ANDROID_KEY_ALIAS=$KS_ALIAS" >> "$GITHUB_ENV"
+          printf '%s\n' "ANDROID_KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"
+          printf '%s\n' "ANDROID_KEY_PASSWORD=$KEY_PASS" >> "$GITHUB_ENV"
+          echo "Using the persistent signing keystore from repository secrets."
 
       - name: Build signed release APK and AAB
         working-directory: gradle
