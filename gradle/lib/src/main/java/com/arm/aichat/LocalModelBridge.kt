@@ -34,14 +34,27 @@ object LocalModelBridge {
         scope.launch {
             try {
                 val e = engine ?: AiChat.getInferenceEngine(context.applicationContext).also { engine = it }
+                if (e.state.value is State.Error) {
+                    e.cleanUp()
+                    loadedPath = null
+                }
                 var attempts = 0
                 while (e.state.value !is State.Initialized && e.state.value !is State.ModelReady) {
                     val state = e.state.value
-                    if (state is State.Error) throw state.exception
+                    if (state is State.Error) {
+                        e.cleanUp()
+                        loadedPath = null
+                        break
+                    }
                     check(attempts++ < 300) { "Native llama.cpp engine did not initialize" }
                     delay(100)
                 }
-                if (loadedPath != path) { e.loadModel(path); e.setSystemPrompt(systemPrompt); loadedPath = path }
+                if (loadedPath != path) {
+                    if (e.state.value is State.ModelReady || e.state.value is State.Error) e.cleanUp()
+                    e.loadModel(path)
+                    e.setSystemPrompt(systemPrompt)
+                    loadedPath = path
+                }
                 e.sendUserPrompt(prompt, 384).collect { token -> withContext(Dispatchers.Main) { callback.onToken(token, false) } }
                 withContext(Dispatchers.Main) { callback.onToken("", true) }
             } catch (t: Throwable) { withContext(Dispatchers.Main) { callback.onError(t.message ?: "Local inference failed") } }

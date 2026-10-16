@@ -15,6 +15,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.StatFs;
 import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
@@ -49,10 +50,38 @@ public class MainActivity extends Activity {
     private static final String CHAT_KEY = "chat_messages_v2";
     private static final String HISTORY_KEY = "chat_history_v1";
     private static final String DOWNLOAD_KEY = "model_download_id";
-    private static final String MODEL_FILE = "Llama-3.2-1B-Instruct-Q4_0_4_4.gguf";
-    private static final String MODEL_URL = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_0_4_4.gguf?download=true";
-    private static final String SYSTEM_PROMPT = "You are Apocalyptic AI, a privacy-first offline survival assistant. Apocalyptic AI is the app and primary brand. You run locally using the open-weight Meta LLaMA 3.2 1B model under the Llama 3.2 Community License. Identify yourself as Apocalyptic AI first and credit Meta LLaMA 3.2 1B when model attribution is relevant. Give cautious, lawful, non-violent preparedness guidance. Never provide instructions for weapons, explosives, traps, or harming people. Encourage local emergency services and trained medical care when appropriate.";
+    private static final String SELECTED_MODEL_KEY = "selected_model_id";
+    private static final String SYSTEM_PROMPT = "You are Apocalyptic AI, a privacy-first local preparedness assistant. Apocalyptic AI is the app and primary identity. Give concise, practical, cautious, lawful, non-violent guidance. Never provide instructions for weapons, explosives, traps, or harming people. Encourage local emergency services and trained medical care when appropriate. If uncertain, say so and prefer official local guidance.";
     private static final String[] KIT_ITEMS = {"Safe drinking water", "Water treatment method", "Shelf-stable food", "First-aid kit", "Essential medicines", "Warm and rain layers", "Light and spare power", "Paper map and compass", "Whistle or signal", "Repair kit and cordage", "Hygiene supplies", "Emergency contacts and plan"};
+
+    private static final class ModelSpec {
+        final String id, name, details, fileName, url, attribution;
+        final long expectedBytes;
+        ModelSpec(String id, String name, String details, String fileName, String url, long expectedBytes, String attribution) {
+            this.id = id;
+            this.name = name;
+            this.details = details;
+            this.fileName = fileName;
+            this.url = url;
+            this.expectedBytes = expectedBytes;
+            this.attribution = attribution;
+        }
+    }
+
+    private static final ModelSpec[] MODELS = {
+            new ModelSpec("llama-1b", "LLaMA 3.2 · 1B", "Best general-purpose option · Q4 · about 735 MiB",
+                    "Llama-3.2-1B-Instruct-Q4_0_4_4.gguf",
+                    "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_0_4_4.gguf?download=true",
+                    770_928_768L, "Meta LLaMA 3.2 1B"),
+            new ModelSpec("qwen-05b", "Qwen 2.5 · 0.5B", "Small model · Q4_K_M · about 379 MiB",
+                    "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
+                    "https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf?download=true",
+                    397_808_192L, "Qwen2.5 0.5B Instruct"),
+            new ModelSpec("smollm2-360m", "SmolLM2 · 360M", "Micro model · Q4_K_M · about 258 MiB",
+                    "SmolLM2-360M-Instruct-Q4_K_M.gguf",
+                    "https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf?download=true",
+                    270_590_880L, "Hugging Face SmolLM2 360M Instruct")
+    };
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ArrayList<ChatMessage> chat = new ArrayList<>();
@@ -69,8 +98,10 @@ public class MainActivity extends Activity {
     private TextView modelAction;
     private TextView checklistCountLabel;
     private ProgressBar checklistProgress;
+    private FrameLayout navigationOverlay;
     private String activeTab = "chat";
     private String activeTopicId;
+    private String selectedModelId = MODELS[0].id;
     private boolean checklistOpen;
     private long downloadId = -1L;
     private boolean isGenerating;
@@ -80,7 +111,7 @@ public class MainActivity extends Activity {
     private final Runnable downloadPoller = new Runnable() {
         @Override public void run() {
             refreshDownloadState();
-            if (downloadId > 0L) handler.postDelayed(this, 900L);
+            if (downloadId > 0L && modelPageStatus != null) handler.postDelayed(this, 900L);
         }
     };
 
@@ -99,13 +130,87 @@ public class MainActivity extends Activity {
 
     private int dp(float value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
 
+    private ModelSpec findModel(String id) {
+        for (ModelSpec model : MODELS) if (model.id.equals(id)) return model;
+        return MODELS[0];
+    }
+
+    private ModelSpec selectedModel() { return findModel(selectedModelId); }
+
+    private String modelDownloadKey(String modelId) { return "model_download_id_" + modelId; }
+
+    private long savedDownloadId(String modelId) {
+        android.content.SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        String key = modelDownloadKey(modelId);
+        if (prefs.contains(key)) return prefs.getLong(key, -1L);
+        if (MODELS[0].id.equals(modelId) && prefs.contains(DOWNLOAD_KEY)) {
+            long legacyId = prefs.getLong(DOWNLOAD_KEY, -1L);
+            prefs.edit().putLong(key, legacyId).remove(DOWNLOAD_KEY).apply();
+            return legacyId;
+        }
+        return -1L;
+    }
+
+    private void saveDownloadId(String modelId, long id) {
+        getPreferences(MODE_PRIVATE).edit().putLong(modelDownloadKey(modelId), id).apply();
+    }
+
+    private void clearDownloadId(String modelId) {
+        getPreferences(MODE_PRIVATE).edit().remove(modelDownloadKey(modelId)).apply();
+        if (MODELS[0].id.equals(modelId)) getPreferences(MODE_PRIVATE).edit().remove(DOWNLOAD_KEY).apply();
+    }
+
+    private File getModelFile(ModelSpec model) {
+        File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        if (dir == null) dir = getFilesDir();
+        return new File(dir, model.fileName);
+    }
+
+    private File getModelFile() { return getModelFile(selectedModel()); }
+
+    private boolean validModelFile(ModelSpec model) {
+        File file = getModelFile(model);
+        if (!file.isFile() || file.length() < model.expectedBytes) return false;
+        try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+            byte[] magic = new byte[4];
+            raf.readFully(magic);
+            return magic[0] == 'G' && magic[1] == 'G' && magic[2] == 'U' && magic[3] == 'F';
+        } catch (Exception ignored) { return false; }
+    }
+
+    private boolean validModelFile() { return validModelFile(selectedModel()); }
+
+    private boolean selectedModelReady() {
+        return validModelFile() && (downloadId <= 0L || !isDownloadActive());
+    }
+
+    private String selectedSystemPrompt() {
+        return SYSTEM_PROMPT + " The selected open-weight model is " + selectedModel().attribution + ". Credit its creators when model attribution is relevant.";
+    }
+
+    private void selectModel(String id) {
+        if (isGenerating) {
+            toast("Wait for the current response before switching models.");
+            return;
+        }
+        selectedModelId = findModel(id).id;
+        getPreferences(MODE_PRIVATE).edit().putString(SELECTED_MODEL_KEY, selectedModelId).apply();
+        downloadId = savedDownloadId(selectedModelId);
+        activeTab = "model";
+        activeTopicId = null;
+        checklistOpen = false;
+        showMain();
+    }
+
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         applyTheme();
         getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         seedTopics();
         loadChat();
-        downloadId = getPreferences(MODE_PRIVATE).getLong(DOWNLOAD_KEY, -1L);
+        selectedModelId = getPreferences(MODE_PRIVATE).getString(SELECTED_MODEL_KEY, MODELS[0].id);
+        selectedModelId = findModel(selectedModelId).id;
+        downloadId = savedDownloadId(selectedModelId);
         if (!getPreferences(MODE_PRIVATE).getBoolean("onboarding_complete", false)) showOnboarding(0);
         else showMain();
     }
@@ -224,18 +329,21 @@ public class MainActivity extends Activity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setGravity(Gravity.CENTER_VERTICAL);
         content.setPadding(0, dp(26), 0, dp(22));
-        TextView emblem = label(page == 0 ? "✦" : page == 1 ? "⌂" : "◈", 58, GREEN);
-        emblem.setGravity(Gravity.CENTER);
+        ImageView emblem = new ImageView(this);
+        emblem.setImageResource(R.drawable.ic_apocalyptic_mark);
+        emblem.setContentDescription("Apocalyptic AI symbol");
+        emblem.setScaleType(ImageView.ScaleType.FIT_CENTER);
         emblem.setBackground(round(GREEN_SOFT, 34));
+        emblem.setPadding(dp(7), dp(7), dp(7), dp(7));
         LinearLayout.LayoutParams emblemParams = new LinearLayout.LayoutParams(dp(104), dp(104));
         emblemParams.bottomMargin = dp(28);
         content.addView(emblem, emblemParams);
 
-        String[] titles = {"Prepared for the uncertain.", "A guide that works offline.", "Your AI model is optional."};
+        String[] titles = {"Prepared for the uncertain.", "A guide that works offline.", "Choose your local AI."};
         String[] descriptions = {
                 "A calm, practical field guide for water, shelter, first aid and everyday readiness.",
                 "Explore the bundled preparedness library and offline guidance any time. Follow local emergency advice first.",
-                "Download the 1B local model when you choose. It is a large download (about 735 MiB) and stays on this device."
+                "Pick a 360M, 0.5B or 1B model. Chat starts after download; the library does not need a model."
         };
         TextView title = label(titles[page], 29, INK);
         title.setTypeface(null, Typeface.BOLD);
@@ -248,7 +356,7 @@ public class MainActivity extends Activity {
         content.addView(description, descParams);
         if (page == 2) {
             LinearLayout privacy = card();
-            TextView note = label("Nothing is downloaded until you tap Download. You can use the offline guide without the model.", 14, GREEN_DARK);
+            TextView note = label("Nothing is downloaded until you choose a model. Local AI chat starts after its download; the preparedness library works without one.", 14, GREEN_DARK);
             note.setLineSpacing(dp(3), 1.0f);
             privacy.addView(note);
             LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
@@ -284,9 +392,23 @@ public class MainActivity extends Activity {
         appRoot.setOrientation(LinearLayout.VERTICAL);
         appRoot.setBackgroundColor(PAPER);
         appRoot.setPadding(dp(18), dp(8), dp(18), 0);
+        navigationOverlay = null;
 
         LinearLayout toolbar = new LinearLayout(this);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
+        boolean wideLayout = getResources().getConfiguration().screenWidthDp >= 640;
+        if (!wideLayout) {
+            ImageView menu = roundImageIcon(R.drawable.ic_menu, "Open navigation");
+            menu.setOnClickListener(v -> toggleNavigationDrawer());
+            toolbar.addView(menu);
+        }
+        ImageView brandMark = new ImageView(this);
+        brandMark.setImageResource(R.drawable.ic_apocalyptic_mark);
+        brandMark.setContentDescription("Apocalyptic AI");
+        LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(32), dp(32));
+        markParams.leftMargin = wideLayout ? 0 : dp(8);
+        markParams.rightMargin = dp(8);
+        toolbar.addView(brandMark, markParams);
         TextView brand = label("APOCALYPTIC AI", 14, GREEN_DARK);
         brand.setTypeface(null, Typeface.BOLD);
         brand.setLetterSpacing(0.07f);
@@ -301,14 +423,111 @@ public class MainActivity extends Activity {
         toolbar.addView(more);
         appRoot.addView(toolbar);
 
+        LinearLayout contentShell = new LinearLayout(this);
+        contentShell.setOrientation(LinearLayout.HORIZONTAL);
         FrameLayout pageFrame = new FrameLayout(this);
         pageBody = new LinearLayout(this);
         pageBody.setOrientation(LinearLayout.VERTICAL);
-        pageFrame.addView(pageBody, new FrameLayout.LayoutParams(-1, -1));
-        appRoot.addView(pageFrame, new LinearLayout.LayoutParams(-1, 0, 1));
-        appRoot.addView(buildBottomNav());
+        int sideWidthDp = wideLayout ? 190 : 0;
+        int screenWidthDp = getResources().getConfiguration().screenWidthDp;
+        int bodyWidthDp = Math.min(780, Math.max(280, screenWidthDp - 36 - sideWidthDp));
+        FrameLayout.LayoutParams bodyParams = new FrameLayout.LayoutParams(dp(bodyWidthDp), -1, Gravity.CENTER_HORIZONTAL);
+        pageFrame.addView(pageBody, bodyParams);
+        if (wideLayout) {
+            contentShell.addView(buildSidebar(), new LinearLayout.LayoutParams(dp(sideWidthDp), -1));
+            contentShell.addView(pageFrame, new LinearLayout.LayoutParams(0, -1, 1));
+        } else {
+            FrameLayout phoneShell = new FrameLayout(this);
+            phoneShell.addView(pageFrame, new FrameLayout.LayoutParams(-1, -1));
+            navigationOverlay = new FrameLayout(this);
+            navigationOverlay.setVisibility(View.GONE);
+            View scrim = new View(this);
+            scrim.setBackgroundColor(Color.argb(145, 0, 0, 0));
+            scrim.setOnClickListener(v -> navigationOverlay.setVisibility(View.GONE));
+            navigationOverlay.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
+            LinearLayout drawer = buildSidebar();
+            FrameLayout.LayoutParams drawerParams = new FrameLayout.LayoutParams(dp(280), -1, Gravity.START);
+            navigationOverlay.addView(drawer, drawerParams);
+            phoneShell.addView(navigationOverlay, new FrameLayout.LayoutParams(-1, -1));
+            contentShell.addView(phoneShell, new LinearLayout.LayoutParams(-1, -1));
+        }
+        appRoot.addView(contentShell, new LinearLayout.LayoutParams(-1, 0, 1));
         setContentView(appRoot);
         renderPage();
+    }
+
+    private void toggleNavigationDrawer() {
+        if (navigationOverlay == null) return;
+        navigationOverlay.setVisibility(navigationOverlay.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+    }
+
+    private LinearLayout buildSidebar() {
+        LinearLayout sidebar = new LinearLayout(this);
+        sidebar.setOrientation(LinearLayout.VERTICAL);
+        sidebar.setPadding(dp(8), dp(10), dp(8), dp(12));
+        sidebar.setBackgroundColor(CARD);
+
+        LinearLayout heading = new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        heading.setPadding(dp(8), dp(6), dp(6), dp(14));
+        ImageView mark = new ImageView(this);
+        mark.setImageResource(R.drawable.ic_apocalyptic_mark);
+        mark.setContentDescription("Apocalyptic AI");
+        heading.addView(mark, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        TextView brand = label("Apocalyptic AI", 14, INK);
+        brand.setTypeface(null, Typeface.BOLD);
+        LinearLayout.LayoutParams brandParams = new LinearLayout.LayoutParams(0, -2, 1);
+        brandParams.leftMargin = dp(9);
+        heading.addView(brand, brandParams);
+        sidebar.addView(heading);
+
+        addSidebarItem(sidebar, "chat", "Chat", "chat.svg", R.drawable.ic_nav_chat);
+        addSidebarItem(sidebar, "library", "Library", "library.svg", R.drawable.ic_nav_library);
+        addSidebarItem(sidebar, "model", "Models", "model.svg", R.drawable.ic_nav_model);
+        addSidebarItem(sidebar, "settings", "Settings", "settings.svg", R.drawable.ic_nav_settings);
+        View divider = new View(this);
+        divider.setBackgroundColor(BORDER);
+        LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(-1, dp(1));
+        dividerParams.setMargins(dp(10), dp(10), dp(10), dp(10));
+        sidebar.addView(divider, dividerParams);
+        addSidebarItem(sidebar, "donate", "Donate", null, R.drawable.ic_donate);
+        return sidebar;
+    }
+
+    private void addSidebarItem(LinearLayout sidebar, String id, String title, String svgAsset, int iconResource) {
+        boolean selected = activeTopicId == null && activeTab.equals(id);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(10), dp(10), dp(10));
+        row.setBackground(round(selected ? GREEN_SOFT : CARD, 12));
+        ImageView icon = new ImageView(this);
+        if ("donate".equals(id)) {
+            icon.setImageResource(iconResource);
+            icon.setColorFilter(selected ? GREEN : MUTED);
+        } else {
+            setSvgIcon(icon, svgAsset, iconResource, selected ? GREEN : MUTED);
+        }
+        icon.setContentDescription(title);
+        row.addView(icon, new LinearLayout.LayoutParams(dp(23), dp(23)));
+        TextView name = label(title, 14, selected ? GREEN_DARK : INK);
+        if (selected) name.setTypeface(null, Typeface.BOLD);
+        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(0, -2, 1);
+        nameParams.leftMargin = dp(12);
+        row.addView(name, nameParams);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+        rowParams.bottomMargin = dp(3);
+        sidebar.addView(row, rowParams);
+        row.setClickable(true);
+        row.setOnClickListener(v -> {
+            if (navigationOverlay != null) navigationOverlay.setVisibility(View.GONE);
+            if ("donate".equals(id)) openDonate();
+            else {
+                activeTopicId = null;
+                checklistOpen = false;
+                activeTab = id;
+                showMain();
+            }
+        });
     }
 
     private void showOverflow(View anchor) {
@@ -335,43 +554,16 @@ public class MainActivity extends Activity {
 
     private void renderPage() {
         pageBody.removeAllViews();
+        modelProgress = null;
+        modelProgressText = null;
+        modelPageStatus = null;
+        modelAction = null;
         if (checklistOpen) renderChecklist();
         else if (activeTopicId != null) renderTopicDetail();
         else if ("chat".equals(activeTab)) renderChat();
         else if ("library".equals(activeTab)) renderLibrary();
         else if ("model".equals(activeTab)) renderModel();
         else renderSettings();
-    }
-
-    private LinearLayout buildBottomNav() {
-        LinearLayout nav = new LinearLayout(this);
-        nav.setGravity(Gravity.CENTER);
-        nav.setBackgroundColor(CARD);
-        nav.setPadding(0, dp(7), 0, dp(10));
-        nav.setElevation(dp(8));
-        addNavItem(nav, "chat", "Chat", "chat.svg", R.drawable.ic_nav_chat);
-        addNavItem(nav, "library", "Library", "library.svg", R.drawable.ic_nav_library);
-        addNavItem(nav, "model", "Model", "model.svg", R.drawable.ic_nav_model);
-        addNavItem(nav, "settings", "Settings", "settings.svg", R.drawable.ic_nav_settings);
-        return nav;
-    }
-
-    private void addNavItem(LinearLayout nav, String id, String title, String svgAsset, int iconResource) {
-        boolean selected = activeTopicId == null && activeTab.equals(id);
-        LinearLayout item = new LinearLayout(this);
-        item.setGravity(Gravity.CENTER);
-        item.setOrientation(LinearLayout.VERTICAL);
-        item.setPadding(0, dp(4), 0, dp(1));
-        ImageView icon = new ImageView(this);
-        setSvgIcon(icon, svgAsset, iconResource, selected ? GREEN : MUTED);
-        icon.setContentDescription(title);
-        item.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(26)));
-        TextView name = label(title, 11, selected ? GREEN_DARK : MUTED);
-        if (selected) name.setTypeface(null, Typeface.BOLD);
-        name.setGravity(Gravity.CENTER);
-        item.addView(name, new LinearLayout.LayoutParams(-1, dp(20)));
-        item.setOnClickListener(v -> { activeTopicId = null; checklistOpen = false; activeTab = id; showMain(); });
-        nav.addView(item, new LinearLayout.LayoutParams(0, dp(53), 1));
     }
 
     private void setSvgIcon(ImageView target, String assetName, int fallbackResource, int tint) {
@@ -406,10 +598,10 @@ public class MainActivity extends Activity {
         state.setGravity(Gravity.CENTER_VERTICAL);
         state.setPadding(dp(12), dp(10), dp(12), dp(10));
         state.setBackground(round(CARD, 14));
-        boolean ready = validModelFile();
+        boolean ready = selectedModelReady();
         TextView stateIcon = label(ready ? "●" : "○", 13, ready ? GREEN : ORANGE);
         state.addView(stateIcon);
-        TextView stateText = label(ready ? "Local model ready · on this device" : "Offline guide ready · model optional", 12, INK);
+        TextView stateText = label(ready ? selectedModel().name + " ready · on this device" : "Download a local model to start AI chat", 12, INK);
         LinearLayout.LayoutParams stateTextParams = new LinearLayout.LayoutParams(0, -2, 1);
         stateTextParams.leftMargin = dp(8);
         state.addView(stateText, stateTextParams);
@@ -420,6 +612,38 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams stateParams = new LinearLayout.LayoutParams(-1, -2);
         stateParams.bottomMargin = dp(12);
         pageBody.addView(state, stateParams);
+
+        if (!ready) {
+            LinearLayout setup = card();
+            setup.setGravity(Gravity.CENTER);
+            ImageView mark = new ImageView(this);
+            mark.setImageResource(R.drawable.ic_apocalyptic_mark);
+            setup.addView(mark, new LinearLayout.LayoutParams(dp(68), dp(68)));
+            TextView setupTitle = label("Choose a local model to chat", 18, INK);
+            setupTitle.setTypeface(null, Typeface.BOLD);
+            setupTitle.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(-1, -2);
+            titleParams.topMargin = dp(12);
+            setup.addView(setupTitle, titleParams);
+            TextView setupCopy = label("Your messages are answered on this device after the model is downloaded. The preparedness library stays available offline.", 13, MUTED);
+            setupCopy.setGravity(Gravity.CENTER);
+            setupCopy.setLineSpacing(dp(3), 1.0f);
+            LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(-1, -2);
+            copyParams.topMargin = dp(7);
+            setup.addView(setupCopy, copyParams);
+            TextView choose = action("Choose a model", true);
+            LinearLayout.LayoutParams chooseParams = new LinearLayout.LayoutParams(-1, dp(50));
+            chooseParams.topMargin = dp(15);
+            setup.addView(choose, chooseParams);
+            choose.setOnClickListener(v -> { activeTab = "model"; showMain(); });
+            TextView library = action("Open preparedness library", false);
+            LinearLayout.LayoutParams libraryParams = new LinearLayout.LayoutParams(-1, dp(48));
+            libraryParams.topMargin = dp(8);
+            setup.addView(library, libraryParams);
+            library.setOnClickListener(v -> { activeTab = "library"; showMain(); });
+            pageBody.addView(setup, new LinearLayout.LayoutParams(-1, 0, 1));
+            return;
+        }
 
         chatScroll = new ScrollView(this);
         chatScroll.setFillViewport(false);
@@ -461,8 +685,11 @@ public class MainActivity extends Activity {
         composer.setPadding(dp(15), dp(10), dp(12), dp(10));
         composer.setBackground(round(CARD, 20));
         composeRow.addView(composer, new LinearLayout.LayoutParams(0, dp(52), 1));
-        TextView send = label("↑", 24, ON_ACCENT);
-        send.setGravity(Gravity.CENTER);
+        ImageView send = new ImageView(this);
+        send.setImageResource(R.drawable.ic_send);
+        send.setColorFilter(ON_ACCENT);
+        send.setContentDescription("Send message");
+        send.setScaleType(ImageView.ScaleType.CENTER);
         send.setBackground(round(GREEN, 20));
         LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(dp(50), dp(50));
         sendParams.leftMargin = dp(8);
@@ -680,11 +907,18 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2);
         bp.topMargin = dp(18);
         content.addView(bodyCard, bp);
-        TextView ask = action("Ask the offline guide", false);
+        TextView ask = action("Ask local AI about this", false);
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, dp(50));
         ap.topMargin = dp(12);
         content.addView(ask, ap);
         ask.setOnClickListener(v -> {
+            if (!selectedModelReady()) {
+                activeTab = "model";
+                activeTopicId = null;
+                showMain();
+                toast("Download a local model before starting AI chat.");
+                return;
+            }
             activeTopicId = null; activeTab = "chat"; showMain();
             if (composer != null) { composer.setText("Give me a practical checklist for " + topic.title.toLowerCase(Locale.US) + "."); sendMessage(); }
         });
@@ -693,10 +927,10 @@ public class MainActivity extends Activity {
     }
 
     private void renderModel() {
-        TextView title = label("Your local model", 23, INK);
+        TextView title = label("Choose a local model", 23, INK);
         title.setTypeface(null, Typeface.BOLD);
         pageBody.addView(title);
-        TextView subtitle = label("Optional download · runs on this device", 13, MUTED);
+        TextView subtitle = label("Three sizes · private, on-device inference", 13, MUTED);
         LinearLayout.LayoutParams sub = new LinearLayout.LayoutParams(-1, -2);
         sub.topMargin = dp(4); sub.bottomMargin = dp(14);
         pageBody.addView(subtitle, sub);
@@ -704,15 +938,21 @@ public class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
+        TextView available = label("AVAILABLE MODELS", 11, MUTED);
+        available.setTypeface(null, Typeface.BOLD);
+        available.setLetterSpacing(0.08f);
+        content.addView(available);
+        for (ModelSpec model : MODELS) content.addView(modelOption(model));
+
         LinearLayout hero = card();
-        TextView modelName = label("Meta LLaMA 3.2 · 1B", 20, INK);
+        TextView modelName = label(selectedModel().name, 18, INK);
         modelName.setTypeface(null, Typeface.BOLD);
         hero.addView(modelName);
-        TextView details = label("Q4_0_4_4 · about 735 MiB · ARM-friendly GGUF", 13, MUTED);
+        TextView details = label(selectedModel().details, 13, MUTED);
         LinearLayout.LayoutParams dpms = new LinearLayout.LayoutParams(-1, -2);
         dpms.topMargin = dp(7);
         hero.addView(details, dpms);
-        TextView privacy = label("Downloaded only when you choose. Inference runs locally; the model file is stored in this app’s private storage.", 13, INK);
+        TextView privacy = label("The selected model runs locally after download. Model files stay in this app’s private storage; no chat is sent to a server.", 13, INK);
         privacy.setLineSpacing(dp(3), 1.0f);
         LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-1, -2);
         pp.topMargin = dp(15);
@@ -738,14 +978,14 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams mpt = new LinearLayout.LayoutParams(-1, -2);
         mpt.topMargin = dp(6);
         stateCard.addView(modelProgressText, mpt);
-        modelAction = action(validModelFile() ? "Model ready" : "Download model", true);
+        modelAction = action(selectedModelReady() ? "Model ready" : "Download model", true);
         LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(-1, dp(50));
         actionParams.topMargin = dp(14);
         stateCard.addView(modelAction, actionParams);
         modelAction.setOnClickListener(v -> onModelAction());
         content.addView(stateCard);
 
-        TextView note = label("No model is included in the app installer. You can still use the offline guide and library without downloading it.", 12, MUTED);
+        TextView note = label("The app installer does not include model weights. Choose a smaller model if storage or download data is limited. The preparedness library remains available offline.", 12, MUTED);
         note.setLineSpacing(dp(3), 1.0f);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(-1, -2);
         np.topMargin = dp(13);
@@ -753,12 +993,46 @@ public class MainActivity extends Activity {
         scroll.addView(content);
         pageBody.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         refreshDownloadState();
+        if (downloadId > 0L) {
+            handler.removeCallbacks(downloadPoller);
+            handler.post(downloadPoller);
+        }
+    }
+
+    private View modelOption(ModelSpec model) {
+        boolean selected = model.id.equals(selectedModelId);
+        LinearLayout option = card();
+        option.setOrientation(LinearLayout.HORIZONTAL);
+        option.setGravity(Gravity.CENTER_VERTICAL);
+        option.setBackground(round(selected ? GREEN_SOFT : CARD, 14));
+        LinearLayout text = new LinearLayout(this);
+        text.setOrientation(LinearLayout.VERTICAL);
+        TextView name = label(model.name, 15, INK);
+        name.setTypeface(null, Typeface.BOLD);
+        text.addView(name);
+        TextView details = label(model.details, 12, MUTED);
+        LinearLayout.LayoutParams detailParams = new LinearLayout.LayoutParams(-1, -2);
+        detailParams.topMargin = dp(3);
+        text.addView(details, detailParams);
+        TextView state = label(selected ? "Selected" : validModelFile(model) ? "On device · select" : "Select", 11, selected ? GREEN_DARK : MUTED);
+        state.setTypeface(null, Typeface.BOLD);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1);
+        option.addView(text, textParams);
+        LinearLayout.LayoutParams stateParams = new LinearLayout.LayoutParams(-2, -2);
+        stateParams.leftMargin = dp(8);
+        option.addView(state, stateParams);
+        option.setClickable(true);
+        option.setOnClickListener(v -> {
+            if (!model.id.equals(selectedModelId)) selectModel(model.id);
+        });
+        return option;
     }
 
     private void onModelAction() {
-        if (validModelFile()) {
+        ModelSpec model = selectedModel();
+        if (selectedModelReady()) {
             new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Model is ready")
-                    .setMessage("The GGUF model is saved on this device. Start a new chat to use local generation.")
+                    .setMessage(model.name + " is saved on this device. Chat responses now run locally.")
                     .setPositiveButton("Open chat", (d, w) -> { activeTab = "chat"; showMain(); })
                     .setNegativeButton("Remove model", (d, w) -> removeModel()).show();
         } else if (downloadId > 0L && isDownloadActive()) {
@@ -767,8 +1041,8 @@ public class MainActivity extends Activity {
                     .setNegativeButton("Keep downloading", null)
                     .setPositiveButton("Cancel download", (d, w) -> cancelDownload()).show();
         } else {
-            new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Download LLaMA 3.2 1B?")
-                    .setMessage("This is a large download (about 735 MiB). Use Wi-Fi if possible. The offline guide remains available while it downloads.")
+            new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Download " + model.name + "?")
+                    .setMessage("This download is about " + formatBytes(model.expectedBytes) + ". Wi-Fi is recommended. The local library stays available while it downloads.")
                     .setNegativeButton("Not now", null)
                     .setPositiveButton("Download", (d, w) -> startModelDownload()).show();
         }
@@ -776,20 +1050,27 @@ public class MainActivity extends Activity {
 
     private void startModelDownload() {
         try {
+            ModelSpec model = selectedModel();
             File target = getModelFile();
             if (target.exists() && !validModelFile()) target.delete();
+            File directory = target.getParentFile();
+            long freeBytes = directory == null ? Long.MAX_VALUE : new StatFs(directory.getAbsolutePath()).getAvailableBytes();
+            if (freeBytes < model.expectedBytes + 32L * 1024L * 1024L) {
+                toast("Not enough free space. Free at least " + formatBytes(model.expectedBytes + 32L * 1024L * 1024L) + " and retry.");
+                return;
+            }
             DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
             if (manager == null) { toast("Android download service is unavailable."); return; }
-            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(MODEL_URL));
-            request.setTitle("Apocalyptic AI · LLaMA 3.2 1B");
-            request.setDescription("Downloading the local model (about 735 MiB)");
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(model.url));
+            request.setTitle("Apocalyptic AI · " + model.name);
+            request.setDescription("Downloading " + model.name + " (" + formatBytes(model.expectedBytes) + ")");
             request.setMimeType("application/octet-stream");
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             request.setAllowedOverMetered(true);
             request.setAllowedOverRoaming(false);
-            request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, MODEL_FILE);
+            request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, model.fileName);
             downloadId = manager.enqueue(request);
-            getPreferences(MODE_PRIVATE).edit().putLong(DOWNLOAD_KEY, downloadId).apply();
+            saveDownloadId(model.id, downloadId);
             if (modelPageStatus != null) modelPageStatus.setText("Connecting to the model host…");
             if (modelAction != null) modelAction.setText("Cancel download");
             handler.removeCallbacks(downloadPoller);
@@ -802,15 +1083,17 @@ public class MainActivity extends Activity {
 
     private void refreshDownloadState() {
         if (modelPageStatus == null) return;
-        if (validModelFile()) {
+        ModelSpec model = selectedModel();
+        if (validModelFile() && (downloadId <= 0L || !isDownloadActive())) {
             modelPageStatus.setText("Ready · file verified as GGUF");
             modelProgress.setProgress(100);
-            modelProgressText.setText("Model saved in app storage");
+            modelProgressText.setText(formatBytes(getModelFile().length()) + " saved on this device");
             modelAction.setText("Model ready");
+            if (downloadId > 0L) clearSelectedDownloadTracking();
             return;
         }
         if (downloadId <= 0L) {
-            modelPageStatus.setText("Not downloaded · offline guide available");
+            modelPageStatus.setText("Not downloaded · the library is available offline");
             modelProgress.setProgress(0);
             modelProgressText.setText("");
             modelAction.setText("Download model");
@@ -823,7 +1106,11 @@ public class MainActivity extends Activity {
             cursor = manager.query(new DownloadManager.Query().setFilterById(downloadId));
             if (cursor == null || !cursor.moveToFirst()) {
                 modelPageStatus.setText("Download not found. You can try again.");
+                modelProgress.setProgress(0);
+                modelProgressText.setText("Start a fresh download to retry.");
                 modelAction.setText("Retry download");
+                getModelFile().delete();
+                clearSelectedDownloadTracking();
                 return;
             }
             int status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
@@ -848,20 +1135,27 @@ public class MainActivity extends Activity {
                     modelAction.setText("Retry download");
                     getModelFile().delete();
                 }
-                handler.removeCallbacks(downloadPoller);
+                clearSelectedDownloadTracking();
             } else if (status == DownloadManager.STATUS_FAILED) {
                 int reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON));
                 modelPageStatus.setText("Download failed · " + downloadFailure(reason));
                 modelProgress.setProgress(0);
-                modelProgressText.setText("Check internet access, storage space and notification settings, then retry.");
+                modelProgressText.setText("Check the connection and free storage, then retry.");
                 modelAction.setText("Retry download");
-                handler.removeCallbacks(downloadPoller);
+                getModelFile().delete();
+                clearSelectedDownloadTracking();
             }
         } catch (Exception e) {
             modelPageStatus.setText("Could not read download status: " + safeMessage(e));
         } finally {
             if (cursor != null) cursor.close();
         }
+    }
+
+    private void clearSelectedDownloadTracking() {
+        clearDownloadId(selectedModelId);
+        downloadId = -1L;
+        handler.removeCallbacks(downloadPoller);
     }
 
     private boolean isDownloadActive() {
@@ -884,25 +1178,24 @@ public class MainActivity extends Activity {
         DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
         if (manager != null && downloadId > 0L) manager.remove(downloadId);
         getModelFile().delete();
-        downloadId = -1L;
-        getPreferences(MODE_PRIVATE).edit().remove(DOWNLOAD_KEY).apply();
-        handler.removeCallbacks(downloadPoller);
+        clearSelectedDownloadTracking();
         refreshDownloadState();
         toast("Download cancelled.");
     }
 
     private void removeModel() {
+        DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+        if (manager != null && downloadId > 0L) manager.remove(downloadId);
         getModelFile().delete();
-        downloadId = -1L;
-        getPreferences(MODE_PRIVATE).edit().remove(DOWNLOAD_KEY).apply();
+        clearSelectedDownloadTracking();
         refreshDownloadState();
         toast("Model removed from this device.");
     }
 
     private String modelStatusSummary() {
-        if (validModelFile()) return "Ready on this device · local inference available";
+        if (selectedModelReady()) return "Ready on this device · local inference available";
         if (downloadId > 0L) return "Checking download status…";
-        return "Not downloaded · offline guide still works";
+        return "Not downloaded · the library remains available offline";
     }
 
     private void renderSettings() {
@@ -952,16 +1245,17 @@ public class MainActivity extends Activity {
         if (composer == null || isGenerating) return;
         String question = composer.getText().toString().trim();
         if (question.isEmpty()) return;
+        if (!selectedModelReady()) {
+            activeTab = "model";
+            showMain();
+            toast("Download a local model before starting AI chat.");
+            return;
+        }
         composer.setText("");
         ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(composer.getWindowToken(), 0);
         addMessage("user", question);
         if (isUnsafeRequest(question)) {
             addMessage("assistant", "I can’t help with weapons, explosives, traps or harming people. I can help with safer alternatives such as shelter, water storage, signaling, protective equipment, repairs and de-escalation.");
-            renderPage();
-            return;
-        }
-        if (!validModelFile()) {
-            addMessage("assistant", offlineAnswer(question));
             renderPage();
             return;
         }
@@ -975,7 +1269,7 @@ public class MainActivity extends Activity {
         final boolean seedingHistory = restoreHistoryContext;
         final String inferencePrompt = buildInferencePrompt(question, seedingHistory);
         restoreHistoryContext = false;
-        LocalModelBridge.generate(this, getModelFile().getAbsolutePath(), SYSTEM_PROMPT, inferencePrompt, new LocalModelBridge.Callback() {
+        LocalModelBridge.generate(this, getModelFile().getAbsolutePath(), selectedSystemPrompt(), inferencePrompt, new LocalModelBridge.Callback() {
             @Override public void onToken(String token, boolean done) {
                 if (token != null) generated.append(token);
                 reply.text = generated.toString();
@@ -991,7 +1285,7 @@ public class MainActivity extends Activity {
             @Override public void onError(String message) {
                 isGenerating = false;
                 restoreHistoryContext = seedingHistory;
-                reply.text = "The local model could not start: " + message + "\n\nOffline guide: " + offlineAnswer(question);
+                reply.text = "The local model could not start: " + message + "\n\nTry selecting a smaller model or check the downloaded file. The offline preparedness library is still available from navigation.";
                 saveChat();
                 renderPage();
             }
@@ -1052,19 +1346,6 @@ public class MainActivity extends Activity {
         if (chatScroll != null) chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
     }
 
-    private String offlineAnswer(String question) {
-        String q = question.toLowerCase(Locale.US);
-        if (hasAny(q, "water", "drink", "filter", "boil")) return findTopic("water").body;
-        if (hasAny(q, "shelter", "warm", "cold", "heat", "fire")) return findTopic("shelter").body;
-        if (hasAny(q, "first aid", "bleed", "injury", "burn", "fracture", "medical")) return findTopic("firstaid").body;
-        if (hasAny(q, "food", "plant", "mushroom", "eat", "cook")) return findTopic("food").body;
-        if (hasAny(q, "map", "navigate", "lost", "route", "compass")) return findTopic("navigation").body;
-        if (hasAny(q, "tool", "repair", "fix", "cord")) return findTopic("repairs").body;
-        if (hasAny(q, "toilet", "sanitation", "waste", "hygiene", "disease")) return findTopic("sanitation").body;
-        if (hasAny(q, "bag", "supplies", "checklist", "kit", "pack")) return findTopic("checklist").body;
-        return "The offline guide is ready for common topics such as safe water, shelter, first aid, food safety, navigation and supplies. Open Library to browse the guides, or download the optional local model for broader conversations. Follow local emergency guidance and contact trained responders when possible.";
-    }
-
     private boolean isUnsafeRequest(String q) {
         String s = q.toLowerCase(Locale.US);
         return hasAny(s, "make a weapon", "build a weapon", "build a gun", "make a bomb", "build a bomb", "explosive", "booby trap", "injury trap", "hurt someone", "kill someone");
@@ -1075,35 +1356,30 @@ public class MainActivity extends Activity {
         return false;
     }
 
-    private boolean validModelFile() {
-        File model = getModelFile();
-        if (!model.isFile() || model.length() < 100_000_000L) return false;
-        try (RandomAccessFile raf = new RandomAccessFile(model, "r")) {
-            byte[] magic = new byte[4];
-            raf.readFully(magic);
-            return magic[0] == 'G' && magic[1] == 'G' && magic[2] == 'U' && magic[3] == 'F';
-        } catch (Exception ignored) { return false; }
-    }
-
-    private File getModelFile() {
-        File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
-        if (dir == null) dir = getFilesDir();
-        return new File(dir, MODEL_FILE);
-    }
-
     private void loadChat() {
         String raw = getPreferences(MODE_PRIVATE).getString(CHAT_KEY, "[]");
+        boolean removedOfflineReplies = false;
         try {
             JSONArray array = new JSONArray(raw);
             for (int i = 0; i < array.length(); i++) {
                 JSONObject item = array.getJSONObject(i);
-                chat.add(new ChatMessage(item.optString("role", "assistant"), item.optString("text", "")));
+                String role = item.optString("role", "assistant");
+                String text = item.optString("text", "");
+                if ("assistant".equals(role) && isLegacyOfflineReply(text)) removedOfflineReplies = true;
+                else chat.add(new ChatMessage(role, text));
             }
         } catch (Exception ignored) { chat.clear(); }
+        if (removedOfflineReplies) saveChat();
         for (ChatMessage message : chat) {
             if ("user".equals(message.role)) { restoreHistoryContext = true; break; }
         }
         if (restoreHistoryContext) LocalModelBridge.startNewConversation();
+    }
+
+    private boolean isLegacyOfflineReply(String text) {
+        if (text.startsWith("The offline guide is ready for common topics")) return true;
+        for (GuideTopic topic : topics) if (topic.body.equals(text)) return true;
+        return false;
     }
 
     private void saveChat() {
@@ -1274,6 +1550,18 @@ public class MainActivity extends Activity {
         return button;
     }
 
+    private ImageView roundImageIcon(int resource, String description) {
+        ImageView button = new ImageView(this);
+        button.setImageResource(resource);
+        button.setColorFilter(GREEN_DARK);
+        button.setScaleType(ImageView.ScaleType.CENTER);
+        button.setContentDescription(description);
+        button.setBackground(round(CARD, 22));
+        button.setClickable(true);
+        button.setLayoutParams(new LinearLayout.LayoutParams(dp(42), dp(42)));
+        return button;
+    }
+
     private GradientDrawable round(int color, float radiusDp) {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(color);
@@ -1289,7 +1577,7 @@ public class MainActivity extends Activity {
 
     private void showAbout() {
         new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("About Apocalyptic AI")
-                .setMessage("Version " + BuildConfig.VERSION_NAME + "\n\nApocalyptic AI is an offline-first preparedness assistant. The bundled library and guide work without a model. Optional local generation uses open-weight Meta LLaMA 3.2 1B after the user downloads a compatible GGUF file. Model licensing is governed by the Llama 3.2 Community License.")
+                .setMessage("Version " + BuildConfig.VERSION_NAME + "\n\nApocalyptic AI is a privacy-first preparedness assistant. Chat uses " + selectedModel().attribution + " locally on this device. Model weights are downloaded separately; review the model’s license before use. The preparedness library works offline without a model.")
                 .setPositiveButton("Close", null).show();
     }
 
@@ -1302,6 +1590,10 @@ public class MainActivity extends Activity {
     private String safeMessage(Exception e) { return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
 
     @Override public void onBackPressed() {
+        if (navigationOverlay != null && navigationOverlay.getVisibility() == View.VISIBLE) {
+            navigationOverlay.setVisibility(View.GONE);
+            return;
+        }
         if (checklistOpen) { checklistOpen = false; renderPage(); return; }
         if (activeTopicId != null) { activeTopicId = null; renderPage(); return; }
         if (!"chat".equals(activeTab)) { activeTab = "chat"; showMain(); return; }

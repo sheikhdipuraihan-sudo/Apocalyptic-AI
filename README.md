@@ -1,18 +1,24 @@
 # Apocalyptic AI
 
-A clean, privacy-first Android field guide for offline survival planning. The app is designed around a **LLaMA 3.2 1B GGUF** model and a compact, dependency-free native shell so the release APK stays small. The app uses Internet only when the user taps **Download model**. The GGUF download happens through Android’s in-app DownloadManager and is saved locally; chat and the bundled guide remain offline after download.
+A privacy-first Android preparedness assistant with a bundled offline guide and optional local AI. Chat runs on the selected GGUF model on the device; the app does not send chat messages to a server. Internet is used only when the user chooses to download a model.
 
 ## What is included
 
-- Black-and-white, minimal AI-chat interface with light, dark and system themes (Settings → Appearance);  with conversation cards, quick prompts, and a model picker.
+- Responsive sidebar navigation, light/dark/system themes, conversation history, and a model picker for 360M, 0.5B, and 1B models.
 - Offline safety-first knowledge pack covering water, shelter, first aid, food safety, tools, and repairs.
 - Guardrail for weapon, explosive, and injury-trap requests; the app redirects to lawful, non-violent preparedness.
-- One Donate entry in Settings: https://raihan.sites.bd
+- Donate is available from the sidebar and Settings: https://raihan.sites.bd
 - GitHub Actions workflow that builds both a debug APK and a signed-ready release AAB.
 
 ## Local model note
 
-This repository does not redistribute Meta’s LLaMA weights. **Download model** now starts an in-app download of the ARM-friendly Q4_0_4_4 GGUF quantization (about 770 MB) from a public Hugging Face quantization repository. Internet is used only for that explicit download; the AI remains local/offline afterward. The download is stored in the app’s private external Downloads directory and tracked by Android DownloadManager. The current release includes the compact UI and official download handoff plus an offline fallback guide. For production inference, connect a llama.cpp Android/JNI runner to the downloaded GGUF file (kept intentionally separate from the UI so the optional native runtime does not inflate the base APK).
+Model weights are not bundled or redistributed by this repository. The in-app model picker offers:
+
+- Meta LLaMA 3.2 1B Instruct, Q4_0_4_4 (about 735 MiB)
+- Qwen2.5 0.5B Instruct, Q4_K_M (about 379 MiB)
+- SmolLM2 360M Instruct, Q4_K_M (about 258 MiB)
+
+Each download is stored in the app’s private Downloads directory and tracked by Android DownloadManager. The app checks available storage, reports transfer progress and failure reasons, and verifies the downloaded GGUF before enabling chat. Wi-Fi is recommended. The library remains available offline whether or not a model is installed.
 
 ## Build locally
 
@@ -28,13 +34,13 @@ Every push to `main` builds `app-debug.apk` and `app-release.aab`. The AAB is up
 
 ## Branding and model attribution
 
-**Apocalyptic AI** is the application name, primary identity, interface brand, and offline survival assistant persona. The app uses the **Meta LLaMA 3.2 1B** open-weight model when the user downloads it. The app should identify itself as Apocalyptic AI first and credit Meta and LLaMA 3.2 when model attribution is relevant. “Open-weight” is used intentionally: Meta’s Llama 3.2 Community License is not an OSI-approved open-source license, so the app does not mislabel the model or imply that Apocalyptic AI owns the model weights.
+**Apocalyptic AI** is the application name, primary identity, interface brand, and preparedness assistant persona. The selected model can be Meta LLaMA 3.2 1B, Qwen2.5 0.5B, or SmolLM2 360M. The app identifies as Apocalyptic AI and credits the selected model’s creators when attribution is relevant. Review each model’s own license and terms before use; Apocalyptic AI does not own or redistribute the model weights.
 
-The runtime system prompt is: “You are Apocalyptic AI, a privacy-first offline survival assistant. Apocalyptic AI is the app and primary brand. You run locally using the open-weight Meta LLaMA 3.2 1B model under the Llama 3.2 Community License. Identify yourself as Apocalyptic AI first and credit Meta LLaMA 3.2 1B when model attribution is relevant. Give cautious, lawful, non-violent preparedness guidance.”
+The runtime system prompt is tailored to the selected model and asks it to give cautious, lawful, non-violent preparedness guidance. Messages are processed locally on the device.
 
 ## Model licensing
 
-LLaMA 3.2 1B is open-weight, but Meta distributes it under the Llama 3.2 Community License rather than an OSI-approved open-source license. The app downloads a compatible quantization from a public repository; users are responsible for reviewing the applicable terms before using or redistributing weights.
+Model licenses vary. Consult the original model card and applicable license before using or redistributing downloaded weights. The app downloads community-provided GGUF quantizations and does not bundle their weights.
 
 ## Content and safety
 
@@ -42,7 +48,7 @@ The bundled summaries are original, concise notes, not full books. The reference
 
 ## Native local inference
 
-The app now links the official MIT-licensed llama.cpp Android binding as a pinned source submodule. The Download model action saves a GGUF file into app-private storage; once present, prompts are sent to llama.cpp locally with the Apocalyptic AI system prompt and generated tokens are returned to the chat UI. The Release page publishes only `app-release.apk` and `app-release.aab`.
+The app links the MIT-licensed llama.cpp runtime as a pinned source submodule. Once a selected GGUF is downloaded and verified, prompts are sent to llama.cpp locally and generated tokens are returned to the chat UI. If a model cannot load, the app reports the error rather than presenting a bundled guide answer as AI chat.
 
 ## Release signing
 
