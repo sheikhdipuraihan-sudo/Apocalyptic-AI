@@ -19,18 +19,22 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK and release AAB
+      - name: Build release APK and release AAB
         working-directory: gradle
         run: |
           chmod +x gradlew
           ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
+          mkdir -p release-out
+          find app/build/outputs -type f -name 'app-release.apk' -exec cp {} release-out/app-release.apk \;
+          find app/build/outputs -type f -name 'app-release.aab' -exec cp {} release-out/app-release.aab \;
+          test -s release-out/app-release.apk
+          test -s release-out/app-release.aab
+          ls -lh release-out
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
           name: apocalyptic-ai-android
-          path: |
-            gradle/app/build/outputs/apk/release/app-release.apk
-            gradle/app/build/outputs/bundle/release/app-release.aab
+          path: gradle/release-out/*
 
   publish-release:
     needs: build
@@ -51,5 +55,5 @@ jobs:
           generate_release_notes: true
           prerelease: true
           files: |
-            release-files/apk/release/app-release.apk
-            release-files/bundle/release/app-release.aab
+            release-files/app-release.apk
+            release-files/app-release.aab
