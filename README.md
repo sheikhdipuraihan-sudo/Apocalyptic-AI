@@ -1,6 +1,6 @@
 # Apocalyptic AI
 
-A clean, privacy-first Android field guide for offline survival planning. The app is designed around a **LLaMA 3.2 1B GGUF** model and a compact, dependency-free native shell so the release APK stays small. The app requests no network permission: chat and the bundled guide are offline; the Donate button only hands the URL to the user’s browser when they choose it.
+A clean, privacy-first Android field guide for offline survival planning. The app is designed around a **LLaMA 3.2 1B GGUF** model and a compact, dependency-free native shell so the release APK stays small. The app uses Internet only when the user taps **Download model**. The GGUF download happens through Android’s in-app DownloadManager and is saved locally; chat and the bundled guide remain offline after download.
 
 ## What is included
 
@@ -12,7 +12,7 @@ A clean, privacy-first Android field guide for offline survival planning. The ap
 
 ## Local model note
 
-This repository does not redistribute Meta’s LLaMA weights. Use **Download model** to open the official [Meta Llama 3.2 1B Instruct page](https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct) in the browser. Accept Meta’s Community License there and download a compatible GGUF quantization from a lawful source. The app itself has no network permission and does not silently download model weights. The current release includes the compact UI and official download handoff plus an offline fallback guide. For production inference, connect a llama.cpp Android/JNI runner in `LocalModelEngine` (kept intentionally separate from the UI so the optional native runtime does not inflate the base APK).
+This repository does not redistribute Meta’s LLaMA weights. **Download model** now starts an in-app download of the ARM-friendly Q4_0_4_4 GGUF quantization (about 770 MB) from a public Hugging Face quantization repository. Internet is used only for that explicit download; the AI remains local/offline afterward. The download is stored in the app’s private external Downloads directory and tracked by Android DownloadManager. The current release includes the compact UI and official download handoff plus an offline fallback guide. For production inference, connect a llama.cpp Android/JNI runner to the downloaded GGUF file (kept intentionally separate from the UI so the optional native runtime does not inflate the base APK).
 
 ## Build locally
 
@@ -28,7 +28,7 @@ Every push to `main` builds `app-debug.apk` and `app-release.aab`. The AAB is up
 
 ## Model licensing
 
-LLaMA 3.2 1B is commonly described as open-weight, but Meta distributes it under the Llama 3.2 Community License rather than an OSI-approved open-source license. Users must review and accept the applicable terms before downloading or redistributing weights.
+LLaMA 3.2 1B is open-weight, but Meta distributes it under the Llama 3.2 Community License rather than an OSI-approved open-source license. The app downloads a compatible quantization from a public repository; users are responsible for reviewing the applicable terms before using or redistributing weights.
 
 ## Content and safety
 

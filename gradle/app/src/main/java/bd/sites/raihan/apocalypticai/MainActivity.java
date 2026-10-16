@@ -5,6 +5,8 @@ import android.content.*;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.app.DownloadManager;
+import android.os.Environment;
 import android.os.Bundle;
 import android.view.*;
 import android.view.inputmethod.InputMethodManager;
@@ -13,7 +15,9 @@ import java.util.*;
 
 public class MainActivity extends Activity {
     final int PURPLE=Color.rgb(99,91,255), INK=Color.rgb(28,29,36), MUTED=Color.rgb(105,106,117), BORDER=Color.rgb(232,232,238);
-    LinearLayout messages; TextView modelStatus; EditText input;
+    LinearLayout messages; TextView modelStatus; EditText input; long modelDownloadId = -1L;
+    static final String MODEL_FILE = "Llama-3.2-1B-Instruct-Q4_0_4_4.gguf";
+    static final String MODEL_URL = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_0_4_4.gguf?download=true";
     int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     TextView tv(String text,float size,int color){ TextView t=new TextView(this); t.setText(text); t.setTextSize(size); t.setTextColor(color); t.setPadding(dp(0),dp(0),dp(0),dp(0)); return t; }
     GradientDrawable bg(int color,float r){ GradientDrawable g=new GradientDrawable(); g.setColor(color); g.setCornerRadius(dp(r)); return g; }
@@ -42,8 +46,27 @@ public class MainActivity extends Activity {
     void addMessage(String who,String text){ LinearLayout box=new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setPadding(dp(15),dp(12),dp(15),dp(12)); box.setBackground(bg(who.equals("user")?Color.rgb(245,244,255):Color.rgb(248,248,249),18)); TextView label=tv(who.equals("user")?"You":"Apocalyptic AI",11,who.equals("user")?PURPLE:MUTED); label.setTypeface(null,1); box.addView(label); TextView body=tv(text,15,INK); body.setPadding(0,dp(5),0,0); box.addView(body); LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2); p.setMargins(0,0,0,dp(10)); messages.addView(box,p); }
     String answer(String q){ String s=q.toLowerCase(Locale.US); if(s.contains("weapon")||s.contains("gun")||s.contains("explosive")||s.contains("trap")) return "I can’t help build weapons, explosives, or injury traps. I can help with safer alternatives: sturdy shelter, water storage, signaling, protective gear, repair tools, and de-escalation planning."; if(s.contains("water")||s.contains("drink")) return "Start with sealed water if available. For uncertain water, use a reliable filter plus boiling or another validated treatment. Store treated water covered, and avoid any source near fuel, chemicals, or sewage."; if(s.contains("shelter")||s.contains("fire")||s.contains("warm")) return "Choose a dry, stable location away from flood paths and damaged structures. Vent any stove outdoors; carbon monoxide has no smell. Insulate from the ground and keep an exit clear."; if(s.contains("first")||s.contains("injury")||s.contains("bleed")) return "Call local emergency services when possible. For severe bleeding, apply firm direct pressure with clean material and keep the person warm. Don’t remove embedded objects; seek trained medical help."; if(s.contains("food")||s.contains("plant")||s.contains("mushroom")) return "Only eat food you can identify with high confidence and that has been stored safely. Unknown plants and mushrooms are not worth the risk. When in doubt, throw it out."; if(s.contains("repair")||s.contains("tool")||s.contains("cord")) return "A small repair kit goes far: cordage, tape, work gloves, pliers, a multi-bit driver, sewing supplies, containers, and a headlamp. Keep tools organized and practice before an emergency."; return "I’m running in compact offline guide mode. Try asking about water, shelter, first aid, food safety, or tools. Load a compatible LLaMA 3.2 1B GGUF model to use full local generation."; }
     void downloadModel(){
-        addMessage("assistant","Opening the official LLaMA 3.2 1B model page. Accept Meta’s license there, download a compatible GGUF quantization, then place it on the device for your local runtime. The app itself stays offline.");
-        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct")));
+        new AlertDialog.Builder(this)
+            .setTitle("Download LLaMA 3.2 1B")
+            .setMessage("Download the ARM-friendly Q4_0_4_4 GGUF model (about 770 MB). Internet is used only for this download; chat remains local and offline after it finishes.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Download", (dialog, which) -> startModelDownload())
+            .show();
     }
+    void startModelDownload(){
+        DownloadManager manager=(DownloadManager)getSystemService(DOWNLOAD_SERVICE);
+        DownloadManager.Request request=new DownloadManager.Request(Uri.parse(MODEL_URL));
+        request.setTitle("LLaMA 3.2 1B");
+        request.setDescription("Downloading offline model");
+        request.setMimeType("application/octet-stream");
+        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+        request.setAllowedOverMetered(true);
+        request.setAllowedOverRoaming(false);
+        request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, MODEL_FILE);
+        modelDownloadId=manager.enqueue(request);
+        modelStatus.setText("  LLaMA 3.2 1B  ·  downloading…");
+        addMessage("assistant","Download started. Android will show progress in the notification area. Your downloaded model stays on this device.");
+    }
+    @Override protected void onResume(){ super.onResume(); if(modelDownloadId>0){ DownloadManager manager=(DownloadManager)getSystemService(DOWNLOAD_SERVICE); DownloadManager.Query q=new DownloadManager.Query().setFilterById(modelDownloadId); android.database.Cursor c=manager.query(q); if(c!=null){ if(c.moveToFirst()){ int status=c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)); if(status==DownloadManager.STATUS_SUCCESSFUL){ modelStatus.setText("  LLaMA 3.2 1B  ·  downloaded locally"); } else if(status==DownloadManager.STATUS_FAILED){ modelStatus.setText("  LLaMA 3.2 1B  ·  download failed"); }} c.close(); } } }
     void openDonate(){ startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://raihan.sites.bd"))); }
 }
