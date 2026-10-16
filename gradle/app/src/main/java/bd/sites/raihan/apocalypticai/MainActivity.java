@@ -130,9 +130,6 @@ public class MainActivity extends Activity {
     private TextView modelProgressText;
     private TextView modelPageStatus;
     private TextView modelAction;
-    private TextView hostStatusLabel;
-    private TextView hostShareLinkLabel;
-    private TextView hostToggleAction;
     private TextView checklistCountLabel;
     private ProgressBar checklistProgress;
     private FrameLayout navigationOverlay;
@@ -140,7 +137,6 @@ public class MainActivity extends Activity {
     private String selectedModelId = DEFAULT_MODEL_ID;
     private String activeConversationId = "";
     private boolean checklistOpen;
-    private boolean pendingHostStart;
     private long downloadId = -1L;
     private boolean isGenerating;
     private boolean isListening;
@@ -157,14 +153,6 @@ public class MainActivity extends Activity {
         @Override public void run() {
             refreshDownloadState();
             if (downloadId > 0L && modelPageStatus != null) handler.postDelayed(this, 900L);
-        }
-    };
-
-    private final Runnable hostStatusPoller = new Runnable() {
-        @Override public void run() {
-            if (!"host".equals(activeTab)) return;
-            refreshHostStatus();
-            handler.postDelayed(this, 900L);
         }
     };
 
@@ -270,24 +258,21 @@ public class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if (downloadId > 0L) handler.post(downloadPoller);
-        if ("host".equals(activeTab)) handler.post(hostStatusPoller);
     }
 
     @Override protected void onPause() {
         handler.removeCallbacks(downloadPoller);
-        handler.removeCallbacks(hostStatusPoller);
         if (isListening) stopVoiceInput(true);
         super.onPause();
     }
 
     @Override protected void onStop() {
-        if (getPreferences(MODE_PRIVATE).getBoolean(AUTO_UNLOAD_KEY, false) && !HostAiService.isActive()) LocalModelBridge.unloadModel();
+        if (getPreferences(MODE_PRIVATE).getBoolean(AUTO_UNLOAD_KEY, false)) LocalModelBridge.unloadModel();
         super.onStop();
     }
 
     @Override protected void onDestroy() {
         handler.removeCallbacks(downloadPoller);
-        handler.removeCallbacks(hostStatusPoller);
         if (speechRecognizer != null) {
             speechRecognizer.destroy();
             speechRecognizer = null;
@@ -305,14 +290,8 @@ public class MainActivity extends Activity {
         if (requestCode == 3107) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) startVoiceInput();
             else toast("Microphone permission is needed for voice input.");
-        } else if (requestCode == 3110) {
-            boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
-            if (granted && pendingHostStart) launchHostService();
-            else toast("Allow notifications to keep the local host visible while the app is in the background.");
-            pendingHostStart = false;
         }
     }
-
 
     private static final String THEME_KEY = "theme_mode"; // system | light | dark
 
@@ -599,7 +578,6 @@ public class MainActivity extends Activity {
         addSidebarItem(items, "new", "New chat", "chat.svg", R.drawable.ic_nav_chat);
         addSidebarItem(items, "chat", "Chat", "chat.svg", R.drawable.ic_nav_chat);
         addSidebarItem(items, "model", "Models", "model.svg", R.drawable.ic_nav_model);
-        addSidebarItem(items, "host", "Host AI", "host.svg", R.drawable.ic_nav_chat);
         addSidebarItem(items, "settings", "Settings", "settings.svg", R.drawable.ic_nav_settings);
 
         View divider = new View(this);
@@ -684,7 +662,6 @@ public class MainActivity extends Activity {
     }
 
     private void renderPage() {
-        handler.removeCallbacks(hostStatusPoller);
         pageBody.removeAllViews();
         modelProgress = null;
         modelProgressText = null;
@@ -693,7 +670,6 @@ public class MainActivity extends Activity {
         if (checklistOpen) renderChecklist();
         else if ("chat".equals(activeTab)) renderChat();
         else if ("model".equals(activeTab)) renderModel();
-        else if ("host".equals(activeTab)) renderHost();
         else renderSettings();
         if (animationsEnabled()) {
             pageBody.setAlpha(0f);
@@ -1012,211 +988,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void renderHost() {
-        LinearLayout hostContent = new LinearLayout(this);
-        hostContent.setOrientation(LinearLayout.VERTICAL);
-        TextView title = label("Host your local AI", 23, INK);
-        title.setTypeface(null, Typeface.BOLD);
-        hostContent.addView(title);
-        TextView subtitle = label("Let friends chat with the model running on this phone.", 13, MUTED);
-        LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(-1, -2);
-        subtitleParams.topMargin = dp(4);
-        subtitleParams.bottomMargin = dp(13);
-        hostContent.addView(subtitle, subtitleParams);
-
-        LinearLayout hostCard = card();
-        TextView statusTitle = label("HOST STATUS", 10, MUTED);
-        statusTitle.setTypeface(null, Typeface.BOLD);
-        statusTitle.setLetterSpacing(0.08f);
-        hostCard.addView(statusTitle);
-        hostStatusLabel = label("Not hosting", 15, INK);
-        hostStatusLabel.setTypeface(null, Typeface.BOLD);
-        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
-        statusParams.topMargin = dp(7);
-        hostCard.addView(hostStatusLabel, statusParams);
-        TextView linkCaption = label("LOCAL SHARE LINK", 10, MUTED);
-        linkCaption.setTypeface(null, Typeface.BOLD);
-        linkCaption.setLetterSpacing(0.08f);
-        LinearLayout.LayoutParams captionParams = new LinearLayout.LayoutParams(-1, -2);
-        captionParams.topMargin = dp(16);
-        hostCard.addView(linkCaption, captionParams);
-        hostShareLinkLabel = label("Start hosting to create a link.", 12, INK);
-        hostShareLinkLabel.setTextIsSelectable(true);
-        hostShareLinkLabel.setLineSpacing(dp(2), 1.0f);
-        LinearLayout.LayoutParams linkParams = new LinearLayout.LayoutParams(-1, -2);
-        linkParams.topMargin = dp(5);
-        hostCard.addView(hostShareLinkLabel, linkParams);
-
-        hostToggleAction = action(HostAiService.isActive() ? "Stop hosting" : "Start hosting", !HostAiService.isActive());
-        LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(-1, dp(48));
-        toggleParams.topMargin = dp(15);
-        hostCard.addView(hostToggleAction, toggleParams);
-        hostToggleAction.setOnClickListener(v -> v.animate().scaleX(0.97f).scaleY(0.97f).setDuration(65)
-                .withEndAction(() -> { v.animate().scaleX(1f).scaleY(1f).setDuration(130).start(); toggleHost(); }).start());
-
-        LinearLayout shareActions = new LinearLayout(this);
-        shareActions.setOrientation(LinearLayout.HORIZONTAL);
-        TextView copy = action("Copy link", false);
-        LinearLayout.LayoutParams shareParams = new LinearLayout.LayoutParams(0, dp(44), 1f);
-        shareParams.topMargin = dp(8);
-        shareParams.rightMargin = dp(5);
-        shareActions.addView(copy, shareParams);
-        copy.setOnClickListener(v -> copyLocalHostLink());
-        TextView share = action("Share link…", false);
-        LinearLayout.LayoutParams shareIntentParams = new LinearLayout.LayoutParams(0, dp(44), 1f);
-        shareIntentParams.topMargin = dp(8);
-        shareIntentParams.leftMargin = dp(5);
-        shareActions.addView(share, shareIntentParams);
-        share.setOnClickListener(v -> shareLocalHostLink());
-        hostCard.addView(shareActions);
-        hostContent.addView(hostCard);
-
-        LinearLayout info = card();
-        TextView infoTitle = label("Wi‑Fi / hotspot only", 15, INK);
-        infoTitle.setTypeface(null, Typeface.BOLD);
-        info.addView(infoTitle);
-        TextView infoBody = label("Friends must join the same Wi‑Fi network or this phone’s hotspot. The host listens only on the phone’s private Wi‑Fi address and rejects off-network connections. There is no public URL, cloud relay, or cloud AI.", 13, MUTED);
-        infoBody.setLineSpacing(dp(3), 1.0f);
-        LinearLayout.LayoutParams infoBodyParams = new LinearLayout.LayoutParams(-1, -2);
-        infoBodyParams.topMargin = dp(7);
-        info.addView(infoBody, infoBodyParams);
-        TextView note = label("The model must already be downloaded on this phone. Hosting uses a temporary access code in the share link; stop hosting to revoke it. Some phone hotspots prevent connected devices from talking to one another.", 12, MUTED);
-        note.setLineSpacing(dp(3), 1.0f);
-        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
-        noteParams.topMargin = dp(10);
-        info.addView(note, noteParams);
-        hostContent.addView(info);
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(hostContent);
-        pageBody.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-
-        refreshHostStatus();
-        handler.removeCallbacks(hostStatusPoller);
-        handler.post(hostStatusPoller);
-    }
-
-    private void refreshHostStatus() {
-        if (hostStatusLabel == null || hostShareLinkLabel == null) return;
-        android.content.SharedPreferences hostPrefs = getSharedPreferences(HostAiService.PREFS, MODE_PRIVATE);
-        if (HostAiService.isActive()) {
-            String address = HostAiService.getLocalAddress();
-            hostStatusLabel.setText("Active · " + address + ":" + HostAiService.PORT + " · local network only");
-            hostStatusLabel.setTextColor(GREEN_DARK);
-            hostShareLinkLabel.setText(localHostShareLink());
-            if (hostToggleAction != null) {
-                hostToggleAction.setText("Stop hosting");
-                hostToggleAction.setTextColor(GREEN_DARK);
-                hostToggleAction.setBackground(round(GREEN_SOFT, 15));
-            }
-        } else {
-            String state = hostPrefs.getString(HostAiService.KEY_STATE, "stopped");
-            String error = hostPrefs.getString(HostAiService.KEY_ERROR, "");
-            String text = "starting".equals(state) ? "Starting local host…" : "error".equals(state) ? "Could not start: " + error : "Not hosting";
-            hostStatusLabel.setText(text);
-            hostStatusLabel.setTextColor("error".equals(state) ? 0xffa43c32 : MUTED);
-            hostShareLinkLabel.setText("Start hosting to create a link.");
-            if (hostToggleAction != null) {
-                hostToggleAction.setText("Start hosting");
-                hostToggleAction.setTextColor(ON_ACCENT);
-                hostToggleAction.setBackground(round(GREEN, 15));
-            }
-        }
-    }
-
-    private void toggleHost() {
-        if (HostAiService.isActive()) {
-            stopHosting();
-            return;
-        }
-        if (isGenerating) {
-            toast("Wait for the current local reply to finish before starting Host AI.");
-            return;
-        }
-        if (!selectedModelReady()) {
-            toast("Download the selected model before hosting.");
-            activeTab = "model";
-            showMain();
-            return;
-        }
-        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("Start Host AI on this network?")
-                .setMessage("Continuing starts a visible background service on this phone. Browser chat messages from people with your link are sent over local, unencrypted HTTP to this phone's model; they are not sent to a cloud AI or internet relay. Only share the access-code link with people you trust on a trusted Wi‑Fi or hotspot network. Stop hosting to revoke the code.")
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Continue", (dialog, which) -> requestHostStartPermission())
-                .show();
-    }
-
-    private void requestHostStartPermission() {
-        if (android.os.Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
-            pendingHostStart = true;
-            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 3110);
-        } else {
-            launchHostService();
-        }
-    }
-
-    private void launchHostService() {
-        android.content.SharedPreferences hostPrefs = getSharedPreferences(HostAiService.PREFS, MODE_PRIVATE);
-        hostPrefs.edit().putString(HostAiService.KEY_STATE, "starting").putString(HostAiService.KEY_ERROR, "").apply();
-        Intent service = new Intent(this, HostAiService.class).setAction(HostAiService.ACTION_START);
-        service.putExtra(HostAiService.EXTRA_MODEL_PATH, getModelFile().getAbsolutePath());
-        service.putExtra(HostAiService.EXTRA_SYSTEM_PROMPT, selectedSystemPrompt());
-        service.putExtra(HostAiService.EXTRA_MAX_TOKENS, responseTokenBudget());
-        service.putExtra(HostAiService.EXTRA_CONTEXT_SIZE, contextSize());
-        service.putExtra(HostAiService.EXTRA_TEMPERATURE, temperatureValue());
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(service);
-            else startService(service);
-            refreshHostStatus();
-            toast("Starting the local host…");
-        } catch (Exception e) {
-            hostPrefs.edit().putString(HostAiService.KEY_STATE, "error")
-                    .putString(HostAiService.KEY_ERROR, "Android could not start the background host. Try again while the app is open.").apply();
-            refreshHostStatus();
-        }
-    }
-
-    private void stopHosting() {
-        try {
-            Intent service = new Intent(this, HostAiService.class).setAction(HostAiService.ACTION_STOP);
-            startService(service);
-            toast("Stopping the local host…");
-        } catch (Exception e) {
-            toast("Could not stop hosting. Use the Stop action in the notification.");
-        }
-        refreshHostStatus();
-    }
-
-    private String localHostShareLink() {
-        if (!HostAiService.isActive()) return "";
-        String address = HostAiService.getLocalAddress();
-        String token = HostAiService.getShareToken();
-        if (address == null || address.isEmpty() || token == null || token.isEmpty()) return "";
-        return "http://" + address + ":" + HostAiService.PORT + "/#key=" + token;
-    }
-
-    private void copyLocalHostLink() {
-        String link = localHostShareLink();
-        if (link.isEmpty()) { toast("Start hosting first to create a local link."); return; }
-        android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        if (clipboard != null) {
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Local AI host link", link));
-            toast("Local link copied. Friends must be on the same Wi‑Fi or hotspot.");
-        }
-    }
-
-    private void shareLocalHostLink() {
-        String link = localHostShareLink();
-        if (link.isEmpty()) { toast("Start hosting first to create a local link."); return; }
-        Intent share = new Intent(Intent.ACTION_SEND);
-        share.setType("text/plain");
-        share.putExtra(Intent.EXTRA_TEXT, "Join my local AI chat. Connect to the same Wi‑Fi or phone hotspot, then open this link: " + link);
-        startActivity(Intent.createChooser(share, "Share local AI link"));
-    }
-
-    private void modelOption(ModelSpec model) {
+    private LinearLayout modelOption(ModelSpec model) {
         boolean selected = model.id.equals(selectedModelId);
         LinearLayout option = card();
         option.setOrientation(LinearLayout.HORIZONTAL);
@@ -1596,7 +1368,7 @@ public class MainActivity extends Activity {
 
         LinearLayout privacy = card();
         TextView privacyTitle = label("Privacy policy", 16, INK); privacyTitle.setTypeface(null, Typeface.BOLD); privacy.addView(privacyTitle);
-        TextView privacyText = label("Read what stays on your phone, what Host AI shares over Wi‑Fi, and how to contact the publisher.", 13, MUTED);
+        TextView privacyText = label("Read how this app handles on-device chats, voice features, model downloads, and your privacy.", 13, MUTED);
         privacyText.setLineSpacing(dp(3), 1.0f);
         LinearLayout.LayoutParams privacyParams = new LinearLayout.LayoutParams(-1, -2); privacyParams.topMargin = dp(7); privacy.addView(privacyText, privacyParams);
         privacy.setClickable(true);
@@ -1686,10 +1458,6 @@ public class MainActivity extends Activity {
 
     private void sendMessage() {
         if (composer == null || isGenerating) return;
-        if (HostAiService.isActive()) {
-            toast("Stop Host AI before using local chat on this phone.");
-            return;
-        }
         String question = composer.getText().toString().trim();
         if (question.isEmpty()) return;
         if (!selectedModelReady()) {
@@ -1732,7 +1500,7 @@ public class MainActivity extends Activity {
         final String inferencePrompt = buildInferencePrompt(question, seedingHistory && includeRestoredContext);
         restoreHistoryContext = false;
         LocalModelBridge.generate(this, getModelFile().getAbsolutePath(), selectedSystemPrompt(), inferencePrompt,
-                responseTokenBudget(), contextSize(), temperatureValue(), false, new LocalModelBridge.Callback() {
+                responseTokenBudget(), contextSize(), temperatureValue(), new LocalModelBridge.Callback() {
             @Override public void onToken(String token, boolean done) {
                 if (token != null) generated.append(token);
                 reply.text = visibleAssistantText(generated.toString());

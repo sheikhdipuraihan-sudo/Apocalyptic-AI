@@ -25,9 +25,6 @@ interface InferenceEngine {
      */
     suspend fun setSystemPrompt(systemPrompt: String)
 
-    /** Resets the conversation state while retaining the loaded model weights. */
-    suspend fun resetConversation(systemPrompt: String)
-
     /**
      * Sends a user prompt to the loaded model and returns a Flow of generated tokens.
      */

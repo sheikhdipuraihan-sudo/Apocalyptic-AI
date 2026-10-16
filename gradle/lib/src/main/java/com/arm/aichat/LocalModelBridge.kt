@@ -62,7 +62,7 @@ object LocalModelBridge {
 
     @JvmStatic
     fun generate(context: Context, path: String, systemPrompt: String, prompt: String, maxNewTokens: Int,
-                 contextSize: Int, temperature: Float, isolateConversation: Boolean, callback: Callback) {
+                 contextSize: Int, temperature: Float, callback: Callback) {
         synchronized(cancellationLock) { stopRequested.set(false) }
         scope.launch {
             try {
@@ -98,7 +98,6 @@ object LocalModelBridge {
                     loadedContextSize = contextSize
                     loadedSystemPrompt = systemPrompt
                 }
-                if (isolateConversation) e.resetConversation(systemPrompt)
                 if (stopRequested.get()) {
                     withContext(Dispatchers.Main) { callback.onToken("", true) }
                     return@launch
@@ -111,24 +110,11 @@ object LocalModelBridge {
                     withContext(Dispatchers.Main) { callback.onToken("", true) }
                     return@launch
                 }
-                e.sendUserPrompt(prompt, maxNewTokens, temperature).collect { token -> withContext(Dispatchers.Main) { callback.onToken(token, false) } }
-                if (isolateConversation) e.resetConversation(systemPrompt)
+                e.sendUserPrompt(prompt, maxNewTokens, temperature).collect { token ->
+                    withContext(Dispatchers.Main) { callback.onToken(token, false) }
+                }
                 withContext(Dispatchers.Main) { callback.onToken("", true) }
             } catch (t: Throwable) {
-                if (isolateConversation) {
-                    val current = engine
-                    try {
-                        if (current != null) {
-                            if (current.state.value is State.ModelReady) current.resetConversation(systemPrompt)
-                            else if (current.state.value is State.Error) {
-                                current.cleanUp()
-                                loadedPath = null
-                                loadedContextSize = null
-                                loadedSystemPrompt = null
-                            }
-                        }
-                    } catch (_: Throwable) { }
-                }
                 withContext(Dispatchers.Main) { callback.onError(t.message ?: "Local inference failed") }
             }
         }
