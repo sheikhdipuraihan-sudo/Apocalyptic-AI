@@ -21,20 +21,38 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build signed release APK and signed release AAB
         working-directory: gradle
+        env:
+          APP_VERSION_CODE: ${{ github.run_number }}
+          APP_VERSION_NAME: 1.0.${{ github.run_number }}
         run: |
           test -s release.keystore
           test -s signing.properties
           chmod +x gradlew
-          ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
+          ./gradlew -PappVersionCode="$APP_VERSION_CODE" -PappVersionName="$APP_VERSION_NAME" :app:assembleRelease :app:bundleRelease --stacktrace
           mkdir -p release-out
           apk_path=$(find app/build/outputs -type f \( -name 'app-release.apk' -o -name 'app-release-unsigned.apk' \) | head -n 1)
           aab_path=$(find app/build/outputs -type f -name 'app-release.aab' | head -n 1)
           test -n "$apk_path"
           test -n "$aab_path"
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$apksigner"
+          signature_report=$("$apksigner" verify --verbose --min-sdk-version 23 "$apk_path")
+          printf '%s\n' "$signature_report"
+          printf '%s\n' "$signature_report" | grep -Fq 'Verified using v1 scheme (JAR signing): true'
+          printf '%s\n' "$signature_report" | grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true'
           cp "$apk_path" release-out/app-release.apk
           cp "$aab_path" release-out/app-release.aab
+          ./gradlew -PappVersionCode="$APP_VERSION_CODE" -PappVersionName="$APP_VERSION_NAME" -PappTargetSdk=29 -PenableV2Signing=false :app:assembleRelease --stacktrace
+          compat_apk=$(find app/build/outputs/apk/release -type f -name 'app-release.apk' | head -n 1)
+          test -n "$compat_apk"
+          compat_signature_report=$("$apksigner" verify --verbose "$compat_apk")
+          printf '%s\n' "$compat_signature_report"
+          printf '%s\n' "$compat_signature_report" | grep -Fq 'Verified using v1 scheme (JAR signing): true'
+          printf '%s\n' "$compat_signature_report" | grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): false'
+          cp "$compat_apk" release-out/app-release-android11-compat.apk
           test -s release-out/app-release.apk
           test -s release-out/app-release.aab
+          test -s release-out/app-release-android11-compat.apk
           ls -lh release-out
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
@@ -58,8 +76,13 @@ jobs:
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: Apocalyptic AI v1.0.${{ github.run_number }}
+          body: |
+            ### Installer choice
+            - `app-release.apk` is the standard Android release (target SDK 35, v1 + v2 signatures). Prefer this for most devices.
+            - `app-release-android11-compat.apk` is a v1-only fallback (target SDK 29) for Android 11 devices whose installer reports a v2 SHA-512 digest verification failure. It is a sideload compatibility build, not the Play Store build.
           generate_release_notes: true
           prerelease: true
           files: |
             release-files/app-release.apk
             release-files/app-release.aab
+            release-files/app-release-android11-compat.apk

@@ -6,7 +6,13 @@ def signingPropertiesFile = rootProject.file('signing.properties')
 if (signingPropertiesFile.exists()) { signingPropertiesFile.withInputStream { signingProperties.load(it) } }
 def hasReleaseSigning = releaseKeystore.exists() && signingProperties.getProperty('storePassword')
 android { namespace 'bd.sites.raihan.apocalypticai'; compileSdk 35
-    defaultConfig { applicationId 'bd.sites.raihan.apocalypticai'; minSdk 24; targetSdk 35; versionCode 1; versionName '1.0.0' }
+    defaultConfig {
+        applicationId 'bd.sites.raihan.apocalypticai'
+        minSdk 24
+        targetSdk (project.findProperty('appTargetSdk') ?: '35').toString().toInteger()
+        versionCode (project.findProperty('appVersionCode') ?: '1').toString().toInteger()
+        versionName (project.findProperty('appVersionName') ?: '1.0.0').toString()
+    }
     signingConfigs {
         release {
             if (hasReleaseSigning) {
@@ -16,7 +22,7 @@ android { namespace 'bd.sites.raihan.apocalypticai'; compileSdk 35
                 keyPassword signingProperties.getProperty('keyPassword')
             }
             enableV1Signing true
-            enableV2Signing false
+            enableV2Signing (project.findProperty('enableV2Signing') ?: 'true').toString().toBoolean()
         }
     }
     dependencies { implementation project(':lib') }

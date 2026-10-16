@@ -21,12 +21,13 @@ object LocalModelBridge {
         scope.launch {
             try {
                 val e = engine ?: AiChat.getInferenceEngine(context.applicationContext).also { engine = it }
-                var ready = false
-                repeat(300) {
-                    if (e.state.value is State.Initialized || e.state.value is State.ModelReady) { ready = true; return@repeat }
+                var attempts = 0
+                while (e.state.value !is State.Initialized && e.state.value !is State.ModelReady) {
+                    val state = e.state.value
+                    if (state is State.Error) throw state.exception
+                    check(attempts++ < 300) { "Native llama.cpp engine did not initialize" }
                     delay(100)
                 }
-                check(ready) { "Native llama.cpp engine did not initialize" }
                 if (loadedPath != path) { e.loadModel(path); e.setSystemPrompt(systemPrompt); loadedPath = path }
                 e.sendUserPrompt(prompt, 384).collect { token -> withContext(Dispatchers.Main) { callback.onToken(token, false) } }
                 withContext(Dispatchers.Main) { callback.onToken("", true) }
