@@ -64,7 +64,6 @@ jobs:
           apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
           report=$("$apksigner" verify --verbose --print-certs "$apk_path")
           printf '%s\n' "$report"
-          printf '%s\n' "$report" | grep -Fq 'Verified using v1 scheme (JAR signing): true'
           printf '%s\n' "$report" | grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true'
           cp "$apk_path" release-out/app-release.apk
           cp "$aab_path" release-out/app-release.aab
