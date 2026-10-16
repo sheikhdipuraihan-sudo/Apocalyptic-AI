@@ -25,8 +25,12 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace
           mkdir -p release-out
-          find app/build/outputs -type f -name 'app-release.apk' -exec cp {} release-out/app-release.apk \;
-          find app/build/outputs -type f -name 'app-release.aab' -exec cp {} release-out/app-release.aab \;
+          apk_path=$(find app/build/outputs -type f \( -name 'app-release.apk' -o -name 'app-release-unsigned.apk' \) | head -n 1)
+          aab_path=$(find app/build/outputs -type f -name 'app-release.aab' | head -n 1)
+          test -n "$apk_path"
+          test -n "$aab_path"
+          cp "$apk_path" release-out/app-release.apk
+          cp "$aab_path" release-out/app-release.aab
           test -s release-out/app-release.apk
           test -s release-out/app-release.aab
           ls -lh release-out
