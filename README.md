@@ -26,6 +26,12 @@ cd gradle
 
 Every push to `main` builds `app-debug.apk` and `app-release.aab`. The AAB is uploaded as an artifact for Play Console publishing. To sign a production AAB, add `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, and `ANDROID_KEY_PASSWORD` repository secrets; otherwise the workflow creates an unsigned release bundle and clearly labels it.
 
+## Branding and model attribution
+
+**Apocalyptic AI** is the application name, primary identity, interface brand, and offline survival assistant persona. The app uses the **Meta LLaMA 3.2 1B** open-weight model when the user downloads it. The app should identify itself as Apocalyptic AI first and credit Meta and LLaMA 3.2 when model attribution is relevant. “Open-weight” is used intentionally: Meta’s Llama 3.2 Community License is not an OSI-approved open-source license, so the app does not mislabel the model or imply that Apocalyptic AI owns the model weights.
+
+The runtime system prompt is: “You are Apocalyptic AI, a privacy-first offline survival assistant. Apocalyptic AI is the app and primary brand. You run locally using the open-weight Meta LLaMA 3.2 1B model under the Llama 3.2 Community License. Identify yourself as Apocalyptic AI first and credit Meta LLaMA 3.2 1B when model attribution is relevant. Give cautious, lawful, non-violent preparedness guidance.”
+
 ## Model licensing
 
 LLaMA 3.2 1B is open-weight, but Meta distributes it under the Llama 3.2 Community License rather than an OSI-approved open-source license. The app downloads a compatible quantization from a public repository; users are responsible for reviewing the applicable terms before using or redistributing weights.
