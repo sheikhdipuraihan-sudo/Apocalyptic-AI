@@ -1,15 +1,18 @@
 plugins { id 'com.android.application' }
 
-def releaseKeystore = rootProject.file('release.keystore')
+// Signing: reads gradle/signing.properties (local, git-ignored) or ANDROID_* environment variables (CI).
 def signingProperties = new Properties()
 def signingPropertiesFile = rootProject.file('signing.properties')
 if (signingPropertiesFile.exists()) { signingPropertiesFile.withInputStream { signingProperties.load(it) } }
-def hasReleaseSigning = releaseKeystore.exists() && signingProperties.getProperty('storePassword')
+def signingValue = { String prop, String env -> System.getenv(env) ?: signingProperties.getProperty(prop) }
+def keystorePath = signingValue('storeFile', 'ANDROID_KEYSTORE_FILE')
+def releaseKeystore = keystorePath ? (new File(keystorePath).isAbsolute() ? new File(keystorePath) : rootProject.file(keystorePath)) : null
+def hasReleaseSigning = releaseKeystore != null && releaseKeystore.exists() && signingValue('storePassword', 'ANDROID_KEYSTORE_PASSWORD')
 def appTargetSdkValue = rootProject.hasProperty('appTargetSdk') ? rootProject.property('appTargetSdk').toString().toInteger() : 35
 def appVersionCodeValue = rootProject.hasProperty('appVersionCode') ? rootProject.property('appVersionCode').toString().toInteger() : 1
 def appVersionNameValue = rootProject.hasProperty('appVersionName') ? rootProject.property('appVersionName').toString() : '1.0.0'
-def v2SigningEnabled = rootProject.hasProperty('enableV2Signing') ? rootProject.property('enableV2Signing').toString().toBoolean() : true
 android { namespace 'bd.sites.raihan.apocalypticai'; compileSdk 35
+    buildFeatures { buildConfig true }
     defaultConfig {
         applicationId 'bd.sites.raihan.apocalypticai'
         minSdk 24
@@ -21,16 +24,21 @@ android { namespace 'bd.sites.raihan.apocalypticai'; compileSdk 35
         release {
             if (hasReleaseSigning) {
                 storeFile releaseKeystore
-                storePassword signingProperties.getProperty('storePassword')
-                keyAlias signingProperties.getProperty('keyAlias')
-                keyPassword signingProperties.getProperty('keyPassword')
+                storePassword signingValue('storePassword', 'ANDROID_KEYSTORE_PASSWORD')
+                keyAlias signingValue('keyAlias', 'ANDROID_KEY_ALIAS')
+                keyPassword signingValue('keyPassword', 'ANDROID_KEY_PASSWORD')
             }
             enableV1Signing true
-            enableV2Signing v2SigningEnabled
+            enableV2Signing true
+            enableV3Signing true
         }
     }
     buildTypes { release { minifyEnabled true; shrinkResources true; signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' } }
-    packaging { resources { excludes += ['/META-INF/{AL2.0,LGPL2.1}'] } }
+    packaging {
+        resources { excludes += ['/META-INF/{AL2.0,LGPL2.1}'] }
+        // Extract native libs at install time: more compatible with MediaTek/XOS and old Android installers.
+        jniLibs { useLegacyPackaging = true }
+    }
 }
 
 dependencies {

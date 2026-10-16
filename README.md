@@ -4,10 +4,10 @@ A clean, privacy-first Android field guide for offline survival planning. The ap
 
 ## What is included
 
-- White, modern AI-chat interface with conversation cards, quick prompts, and a model picker.
+- Black-and-white, minimal AI-chat interface with light, dark and system themes (Settings → Appearance);  with conversation cards, quick prompts, and a model picker.
 - Offline safety-first knowledge pack covering water, shelter, first aid, food safety, tools, and repairs.
 - Guardrail for weapon, explosive, and injury-trap requests; the app redirects to lawful, non-violent preparedness.
-- Donation link on the main screen: https://raihan.sites.bd
+- One Donate entry in Settings: https://raihan.sites.bd
 - GitHub Actions workflow that builds both a debug APK and a signed-ready release AAB.
 
 ## Local model note
@@ -46,4 +46,8 @@ The app now links the official MIT-licensed llama.cpp Android binding as a pinne
 
 ## Release signing
 
-This repository is private and contains the Apocalyptic AI release keystore and `gradle/signing.properties` because the owner explicitly requested repository-stored signing. Keep the repository private and do not share the keystore or signing properties. The GitHub Actions workflow signs both the release APK and release AAB from these files.
+Signing keys are **not** stored in this repository. Add these repository secrets (Settings → Secrets and variables → Actions) so every build uses the same key and can update in place:
+
+`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD`
+
+Use an **RSA-2048** key. Without secrets, the workflow generates a throw-away RSA-2048 key for that build.

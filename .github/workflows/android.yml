@@ -19,41 +19,57 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build signed release APK and signed release AAB
+
+      - name: Prepare signing key
+        working-directory: gradle
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ] && [ -n "$KS_ALIAS" ] && [ -n "$KS_PASS" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_ALIAS=$KS_ALIAS" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_PASSWORD=${KEY_PASS:-$KS_PASS}" >> "$GITHUB_ENV"
+            echo "Using the keystore from repository secrets."
+          else
+            echo "::warning::No signing secrets set. Generating a throw-away RSA-2048 key. The APK installs fine, but each build has a different signature, so uninstall the old version before installing a new one."
+            P=$(openssl rand -hex 16)
+            keytool -genkeypair -keystore "$RUNNER_TEMP/release.keystore" -storetype PKCS12 \
+              -alias apocalyptic-ai -keyalg RSA -keysize 2048 -sigalg SHA256withRSA -validity 10000 \
+              -dname "CN=Apocalyptic AI, O=Apocalyptic AI, C=BD" -storepass "$P" -keypass "$P"
+            echo "::add-mask::$P"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_ALIAS=apocalyptic-ai" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=$P" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_PASSWORD=$P" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build signed release APK and AAB
         working-directory: gradle
         env:
           APP_VERSION_CODE: ${{ github.run_number }}
           APP_VERSION_NAME: 1.0.${{ github.run_number }}
         run: |
-          test -s release.keystore
-          test -s signing.properties
           chmod +x gradlew
           ./gradlew -PappVersionCode="$APP_VERSION_CODE" -PappVersionName="$APP_VERSION_NAME" :app:assembleRelease :app:bundleRelease --stacktrace
           mkdir -p release-out
-          apk_path=$(find app/build/outputs -type f \( -name 'app-release.apk' -o -name 'app-release-unsigned.apk' \) | head -n 1)
+          apk_path=$(find app/build/outputs/apk/release -type f -name 'app-release.apk' | head -n 1)
           aab_path=$(find app/build/outputs -type f -name 'app-release.aab' | head -n 1)
           test -n "$apk_path"
           test -n "$aab_path"
           apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
-          test -x "$apksigner"
-          signature_report=$("$apksigner" verify --verbose --min-sdk-version 23 "$apk_path")
-          printf '%s\n' "$signature_report"
-          printf '%s\n' "$signature_report" | grep -Fq 'Verified using v1 scheme (JAR signing): true'
-          printf '%s\n' "$signature_report" | grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true'
+          report=$("$apksigner" verify --verbose --print-certs "$apk_path")
+          printf '%s\n' "$report"
+          printf '%s\n' "$report" | grep -Fq 'Verified using v1 scheme (JAR signing): true'
+          printf '%s\n' "$report" | grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true'
           cp "$apk_path" release-out/app-release.apk
           cp "$aab_path" release-out/app-release.aab
-          ./gradlew -PappVersionCode="$APP_VERSION_CODE" -PappVersionName="$APP_VERSION_NAME" -PappTargetSdk=29 -PenableV2Signing=false :app:assembleRelease --stacktrace
-          compat_apk=$(find app/build/outputs/apk/release -type f -name 'app-release.apk' | head -n 1)
-          test -n "$compat_apk"
-          compat_signature_report=$("$apksigner" verify --verbose "$compat_apk")
-          printf '%s\n' "$compat_signature_report"
-          printf '%s\n' "$compat_signature_report" | grep -Fq 'Verified using v1 scheme (JAR signing): true'
-          printf '%s\n' "$compat_signature_report" | grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): false'
-          cp "$compat_apk" release-out/app-release-android11-compat.apk
-          test -s release-out/app-release.apk
-          test -s release-out/app-release.aab
-          test -s release-out/app-release-android11-compat.apk
           ls -lh release-out
+
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -77,12 +93,10 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: Apocalyptic AI v1.0.${{ github.run_number }}
           body: |
-            ### Installer choice
-            - `app-release.apk` is the standard Android release (target SDK 35, v1 + v2 signatures). Prefer this for most devices.
-            - `app-release-android11-compat.apk` is a v1-only fallback (target SDK 29) for Android 11 devices whose installer reports a v2 SHA-512 digest verification failure. It is a sideload compatibility build, not the Play Store build.
+            `app-release.apk` is signed with v1 + v2 + v3 (RSA-2048), works on Android 7 to Android 15.
+            If you installed an older build signed with a different key, uninstall it first.
           generate_release_notes: true
           prerelease: true
           files: |
             release-files/app-release.apk
             release-files/app-release.aab
-            release-files/app-release-android11-compat.apk

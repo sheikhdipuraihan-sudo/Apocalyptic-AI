@@ -41,15 +41,9 @@ import java.util.ArrayList;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
-    private static final int INK = Color.rgb(32, 39, 34);
-    private static final int MUTED = Color.rgb(112, 121, 114);
-    private static final int GREEN = Color.rgb(47, 111, 82);
-    private static final int GREEN_DARK = Color.rgb(30, 79, 57);
-    private static final int GREEN_SOFT = Color.rgb(231, 241, 234);
-    private static final int PAPER = Color.rgb(250, 249, 245);
-    private static final int CARD = Color.WHITE;
-    private static final int BORDER = Color.rgb(232, 234, 228);
-    private static final int ORANGE = Color.rgb(210, 127, 65);
+    // Theme colours (monochrome, black/white). Set by applyTheme().
+    private int INK, MUTED, GREEN, GREEN_DARK, GREEN_SOFT, PAPER, CARD, BORDER, ORANGE, ON_ACCENT;
+    private boolean darkMode;
 
     private static final String PREFS = "apocalyptic_ai_prefs";
     private static final String CHAT_KEY = "chat_messages_v2";
@@ -107,9 +101,7 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().setStatusBarColor(PAPER);
-        getWindow().setNavigationBarColor(Color.WHITE);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        applyTheme();
         getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         seedTopics();
         loadChat();
@@ -131,6 +123,63 @@ public class MainActivity extends Activity {
     @Override protected void onDestroy() {
         handler.removeCallbacks(downloadPoller);
         super.onDestroy();
+    }
+
+
+    private static final String THEME_KEY = "theme_mode"; // system | light | dark
+
+    private String themeMode() { return getPreferences(MODE_PRIVATE).getString(THEME_KEY, "system"); }
+
+    private void applyTheme() {
+        String mode = themeMode();
+        boolean systemDark = (getResources().getConfiguration().uiMode
+                & android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        darkMode = "dark".equals(mode) || ("system".equals(mode) && systemDark);
+        if (darkMode) {
+            INK = Color.rgb(242, 242, 240);
+            MUTED = Color.rgb(154, 154, 150);
+            GREEN = Color.rgb(242, 242, 240);
+            GREEN_DARK = Color.WHITE;
+            GREEN_SOFT = Color.rgb(42, 42, 42);
+            PAPER = Color.rgb(22, 22, 22);
+            CARD = Color.rgb(33, 33, 33);
+            BORDER = Color.rgb(52, 52, 52);
+            ORANGE = Color.rgb(138, 138, 134);
+            ON_ACCENT = Color.rgb(22, 22, 22);
+        } else {
+            INK = Color.rgb(52, 50, 45);
+            MUTED = Color.rgb(131, 130, 126);
+            GREEN = Color.rgb(26, 26, 26);
+            GREEN_DARK = Color.rgb(26, 26, 26);
+            GREEN_SOFT = Color.rgb(237, 237, 235);
+            PAPER = Color.rgb(248, 248, 247);
+            CARD = Color.WHITE;
+            BORDER = Color.rgb(229, 229, 227);
+            ORANGE = Color.rgb(138, 138, 134);
+            ON_ACCENT = Color.WHITE;
+        }
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(PAPER));
+        getWindow().setStatusBarColor(PAPER);
+        getWindow().setNavigationBarColor(CARD);
+        int flags = View.SYSTEM_UI_FLAG_VISIBLE;
+        if (!darkMode) {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (android.os.Build.VERSION.SDK_INT >= 26) flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        }
+        getWindow().getDecorView().setSystemUiVisibility(flags);
+    }
+
+    private String themeLabel() {
+        String m = themeMode();
+        return "dark".equals(m) ? "Dark" : "light".equals(m) ? "Light" : "System default";
+    }
+
+    private void cycleTheme() {
+        String m = themeMode();
+        String next = "system".equals(m) ? "light" : "light".equals(m) ? "dark" : "system";
+        getPreferences(MODE_PRIVATE).edit().putString(THEME_KEY, next).apply();
+        applyTheme();
+        showMain();
     }
 
     private void seedTopics() {
@@ -297,7 +346,7 @@ public class MainActivity extends Activity {
     private LinearLayout buildBottomNav() {
         LinearLayout nav = new LinearLayout(this);
         nav.setGravity(Gravity.CENTER);
-        nav.setBackgroundColor(Color.WHITE);
+        nav.setBackgroundColor(CARD);
         nav.setPadding(0, dp(7), 0, dp(10));
         nav.setElevation(dp(8));
         addNavItem(nav, "chat", "Chat", "chat.svg", R.drawable.ic_nav_chat);
@@ -356,7 +405,7 @@ public class MainActivity extends Activity {
         LinearLayout state = new LinearLayout(this);
         state.setGravity(Gravity.CENTER_VERTICAL);
         state.setPadding(dp(12), dp(10), dp(12), dp(10));
-        state.setBackground(round(Color.WHITE, 14));
+        state.setBackground(round(CARD, 14));
         boolean ready = validModelFile();
         TextView stateIcon = label(ready ? "●" : "○", 13, ready ? GREEN : ORANGE);
         state.addView(stateIcon);
@@ -389,7 +438,7 @@ public class MainActivity extends Activity {
             for (String[] choice : choices) {
                 TextView prompt = label(choice[0] + "     ›", 13, GREEN_DARK);
                 prompt.setPadding(dp(12), dp(8), dp(12), dp(8));
-                prompt.setBackground(round(Color.WHITE, 12));
+                prompt.setBackground(round(CARD, 12));
                 LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-1, -2);
                 pp.bottomMargin = dp(6);
                 prompts.addView(prompt, pp);
@@ -410,9 +459,9 @@ public class MainActivity extends Activity {
         composer.setSingleLine(false);
         composer.setMaxLines(4);
         composer.setPadding(dp(15), dp(10), dp(12), dp(10));
-        composer.setBackground(round(Color.WHITE, 20));
+        composer.setBackground(round(CARD, 20));
         composeRow.addView(composer, new LinearLayout.LayoutParams(0, dp(52), 1));
-        TextView send = label("↑", 24, Color.WHITE);
+        TextView send = label("↑", 24, ON_ACCENT);
         send.setGravity(Gravity.CENTER);
         send.setBackground(round(GREEN, 20));
         LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(dp(50), dp(50));
@@ -458,7 +507,7 @@ public class MainActivity extends Activity {
         librarySearch.setTextSize(14);
         librarySearch.setHint("Search water, shelter, first aid…");
         librarySearch.setPadding(dp(14), 0, dp(14), 0);
-        librarySearch.setBackground(round(Color.WHITE, 14));
+        librarySearch.setBackground(round(CARD, 14));
         pageBody.addView(librarySearch, new LinearLayout.LayoutParams(-1, dp(48)));
         ScrollView scroll = new ScrollView(this);
         LinearLayout list = new LinearLayout(this);
@@ -521,7 +570,7 @@ public class MainActivity extends Activity {
             item.setTextSize(14);
             item.setButtonTintList(android.content.res.ColorStateList.valueOf(GREEN));
             item.setPadding(dp(12), dp(6), dp(12), dp(6));
-            item.setBackground(round(Color.WHITE, 12));
+            item.setBackground(round(CARD, 12));
             item.setChecked(getPreferences(MODE_PRIVATE).getBoolean("kit_checked_" + i, false));
             item.setOnCheckedChangeListener((button, checked) -> {
                 getPreferences(MODE_PRIVATE).edit().putBoolean("kit_checked_" + itemIndex, checked).apply();
@@ -539,7 +588,7 @@ public class MainActivity extends Activity {
         resetParams.topMargin = dp(6);
         resetParams.bottomMargin = dp(8);
         pageBody.addView(reset, resetParams);
-        reset.setOnClickListener(v -> new AlertDialog.Builder(this)
+        reset.setOnClickListener(v -> new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
                 .setTitle("Reset your checklist?")
                 .setMessage("All check marks will be cleared on this device.")
                 .setNegativeButton("Keep it", null)
@@ -708,17 +757,17 @@ public class MainActivity extends Activity {
 
     private void onModelAction() {
         if (validModelFile()) {
-            new AlertDialog.Builder(this).setTitle("Model is ready")
+            new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Model is ready")
                     .setMessage("The GGUF model is saved on this device. Start a new chat to use local generation.")
                     .setPositiveButton("Open chat", (d, w) -> { activeTab = "chat"; showMain(); })
                     .setNegativeButton("Remove model", (d, w) -> removeModel()).show();
         } else if (downloadId > 0L && isDownloadActive()) {
-            new AlertDialog.Builder(this).setTitle("Cancel model download?")
+            new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Cancel model download?")
                     .setMessage("The partial model file will be removed.")
                     .setNegativeButton("Keep downloading", null)
                     .setPositiveButton("Cancel download", (d, w) -> cancelDownload()).show();
         } else {
-            new AlertDialog.Builder(this).setTitle("Download LLaMA 3.2 1B?")
+            new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Download LLaMA 3.2 1B?")
                     .setMessage("This is a large download (about 735 MiB). Use Wi-Fi if possible. The offline guide remains available while it downloads.")
                     .setNegativeButton("Not now", null)
                     .setPositiveButton("Download", (d, w) -> startModelDownload()).show();
@@ -875,6 +924,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams privacyParams = new LinearLayout.LayoutParams(-1, -2); privacyParams.topMargin = dp(7); privacy.addView(privacyText, privacyParams);
         list.addView(privacy);
 
+        list.addView(settingRow("Appearance", "Theme: " + themeLabel() + " (tap to change)", v -> cycleTheme()));
         list.addView(settingRow("Recent chats", "Open conversations saved on this device", v -> openHistory()));
         list.addView(settingRow("My go-bag checklist", checklistSummary(), v -> openChecklist()));
         list.addView(settingRow("Preparedness safety", "Guidance is cautious and non-violent", v -> showSafety()));
@@ -988,7 +1038,7 @@ public class MainActivity extends Activity {
         bubble.setOrientation(LinearLayout.VERTICAL);
         bubble.setPadding(dp(14), dp(11), dp(14), dp(11));
         boolean user = "user".equals(message.role);
-        bubble.setBackground(round(user ? GREEN_SOFT : Color.WHITE, 16));
+        bubble.setBackground(round(user ? GREEN_SOFT : CARD, 16));
         TextView who = label(user ? "YOU" : "APOCALYPTIC AI", 10, user ? GREEN : MUTED);
         who.setTypeface(null, Typeface.BOLD);
         bubble.addView(who);
@@ -1114,7 +1164,7 @@ public class MainActivity extends Activity {
             if (history.length() == 0) { toast("No saved conversations yet. Start a chat, then tap New chat to save it."); return; }
             String[] titles = new String[history.length()];
             for (int i = 0; i < history.length(); i++) titles[i] = history.getJSONObject(i).optString("title", "Preparedness chat");
-            new AlertDialog.Builder(this).setTitle("Recent chats · saved on this device")
+            new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Recent chats · saved on this device")
                     .setItems(titles, (dialog, selectedIndex) -> {
                         archiveCurrentChat();
                         try {
@@ -1155,7 +1205,7 @@ public class MainActivity extends Activity {
     }
 
     private void confirmClearChat() {
-        new AlertDialog.Builder(this).setTitle("Clear saved chat?")
+        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Clear saved chat?")
                 .setMessage("This removes the locally saved conversation from this device.")
                 .setNegativeButton("Keep it", null)
                 .setPositiveButton("Clear", (d, w) -> { chat.clear(); saveChat(); LocalModelBridge.startNewConversation(); restoreHistoryContext = false; activeTab = "chat"; activeTopicId = null; checklistOpen = false; showMain(); })
@@ -1207,7 +1257,7 @@ public class MainActivity extends Activity {
     }
 
     private TextView action(String text, boolean primary) {
-        TextView button = label(text, 14, primary ? Color.WHITE : GREEN_DARK);
+        TextView button = label(text, 14, primary ? ON_ACCENT : GREEN_DARK);
         button.setGravity(Gravity.CENTER);
         button.setTypeface(null, Typeface.BOLD);
         button.setBackground(round(primary ? GREEN : GREEN_SOFT, 15));
@@ -1219,7 +1269,7 @@ public class MainActivity extends Activity {
         TextView button = label(glyph, 23, GREEN_DARK);
         button.setGravity(Gravity.CENTER);
         button.setContentDescription(description);
-        button.setBackground(round(Color.WHITE, 22));
+        button.setBackground(round(CARD, 22));
         button.setLayoutParams(new LinearLayout.LayoutParams(dp(42), dp(42)));
         return button;
     }
@@ -1232,13 +1282,13 @@ public class MainActivity extends Activity {
     }
 
     private void showSafety() {
-        new AlertDialog.Builder(this).setTitle("Preparedness safety")
+        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Preparedness safety")
                 .setMessage("This app supports lawful, non-violent preparedness. It is educational and does not replace local emergency instructions, trained medical care or professional advice. Avoid risky improvisation and contact emergency services when possible.")
                 .setPositiveButton("Got it", null).show();
     }
 
     private void showAbout() {
-        new AlertDialog.Builder(this).setTitle("About Apocalyptic AI")
+        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("About Apocalyptic AI")
                 .setMessage("Version " + BuildConfig.VERSION_NAME + "\n\nApocalyptic AI is an offline-first preparedness assistant. The bundled library and guide work without a model. Optional local generation uses open-weight Meta LLaMA 3.2 1B after the user downloads a compatible GGUF file. Model licensing is governed by the Llama 3.2 Community License.")
                 .setPositiveButton("Close", null).show();
     }
