@@ -86,7 +86,7 @@ internal class InferenceEngineImpl private constructor(
     private external fun load(modelPath: String): Int
 
     @FastNative
-    private external fun prepare(): Int
+    private external fun prepare(contextSize: Int): Int
 
     @FastNative
     private external fun systemInfo(): String
@@ -98,7 +98,7 @@ internal class InferenceEngineImpl private constructor(
     private external fun processSystemPrompt(systemPrompt: String): Int
 
     @FastNative
-    private external fun processUserPrompt(userPrompt: String, predictLength: Int): Int
+    private external fun processUserPrompt(userPrompt: String, predictLength: Int, temperature: Float): Int
 
     @FastNative
     private external fun generateNextToken(): String?
@@ -147,7 +147,7 @@ internal class InferenceEngineImpl private constructor(
     /**
      * Load the LLM
      */
-    override suspend fun loadModel(pathToModel: String) =
+    override suspend fun loadModel(pathToModel: String, contextSize: Int) =
         withContext(llamaDispatcher) {
             check(_state.value is InferenceEngine.State.Initialized) {
                 "Cannot load model in ${_state.value.javaClass.simpleName}!"
@@ -168,7 +168,7 @@ internal class InferenceEngineImpl private constructor(
                     // TODO-han.yin: find a better way to pass other error codes
                     if (it != 0) throw UnsupportedArchitectureException()
                 }
-                prepare().let {
+                prepare(contextSize).let {
                     if (it != 0) throw IOException("Failed to prepare resources")
                 }
                 Log.i(TAG, "Model loaded!")
@@ -217,6 +217,7 @@ internal class InferenceEngineImpl private constructor(
     override fun sendUserPrompt(
         message: String,
         predictLength: Int,
+        temperature: Float,
     ): Flow<String> = flow {
         require(message.isNotEmpty()) { "User prompt discarded due to being empty!" }
         check(_state.value is InferenceEngine.State.ModelReady) {
@@ -228,7 +229,7 @@ internal class InferenceEngineImpl private constructor(
             _readyForSystemPrompt = false
             _state.value = InferenceEngine.State.ProcessingUserPrompt
 
-            processUserPrompt(message, predictLength).let { result ->
+            processUserPrompt(message, predictLength, temperature).let { result ->
                 if (result != 0) {
                     Log.e(TAG, "Failed to process user prompt: $result")
                     return@flow

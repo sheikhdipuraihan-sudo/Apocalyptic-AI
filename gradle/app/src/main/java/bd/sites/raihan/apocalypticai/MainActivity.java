@@ -64,6 +64,11 @@ public class MainActivity extends Activity {
     private static final String VOICE_LANGUAGE_KEY = "voice_language";
     private static final String RESPONSE_LENGTH_KEY = "response_length_mode";
     private static final String RESTORED_CONTEXT_KEY = "restored_chat_context_enabled";
+    private static final String CONTEXT_SIZE_KEY = "context_size";
+    private static final String TEMPERATURE_KEY = "temperature_mode";
+    private static final String AUTO_UNLOAD_KEY = "auto_unload_model";
+    private static final String CUSTOM_INSTRUCTIONS_KEY = "custom_assistant_instructions";
+    private static final String ANIMATIONS_KEY = "animations_enabled";
     private static final String DOWNLOAD_KEY = "model_download_id";
     private static final String SELECTED_MODEL_KEY = "selected_model_id";
     private static final String SYSTEM_PROMPT = "You are Apocalyptic AI, a concise on-device preparedness assistant. Give direct, practical safety guidance. Never help with weapons, explosives, traps, or harming people. For emergencies, recommend local emergency services or qualified professionals. Return only the answer; do not reveal private reasoning.";
@@ -214,7 +219,13 @@ public class MainActivity extends Activity {
     }
 
     private String selectedSystemPrompt() {
-        return SYSTEM_PROMPT + " The selected model is " + selectedModel().attribution + ". Identify it accurately if asked.";
+        String prompt = SYSTEM_PROMPT + " The selected model is " + selectedModel().attribution + ". Identify it accurately if asked.";
+        String custom = getPreferences(MODE_PRIVATE).getString(CUSTOM_INSTRUCTIONS_KEY, "").trim();
+        if (!custom.isEmpty()) {
+            if (custom.length() > 1200) custom = custom.substring(0, 1200);
+            prompt += "\n\nAdditional user style/persona preferences (follow when consistent with the app's safety rules):\n" + custom;
+        }
+        return prompt;
     }
 
     private void selectModel(String id) {
@@ -252,6 +263,11 @@ public class MainActivity extends Activity {
         handler.removeCallbacks(downloadPoller);
         if (isListening) stopVoiceInput(true);
         super.onPause();
+    }
+
+    @Override protected void onStop() {
+        if (getPreferences(MODE_PRIVATE).getBoolean(AUTO_UNLOAD_KEY, false)) LocalModelBridge.unloadModel();
+        super.onStop();
     }
 
     @Override protected void onDestroy() {
@@ -331,6 +347,76 @@ public class MainActivity extends Activity {
         getPreferences(MODE_PRIVATE).edit().putString(THEME_KEY, next).apply();
         applyTheme();
         showMain();
+    }
+
+    private int contextSize() { return getPreferences(MODE_PRIVATE).getInt(CONTEXT_SIZE_KEY, 4096); }
+    private String contextSizeLabel() { return String.format(Locale.US, "%,d requested tokens · model may cap it", contextSize()); }
+    private void cycleContextSize() {
+        int size = contextSize();
+        int next = size == 2048 ? 4096 : size == 4096 ? 8192 : 2048;
+        getPreferences(MODE_PRIVATE).edit().putInt(CONTEXT_SIZE_KEY, next).apply();
+        toast("Context window set to " + String.format(Locale.US, "%,d", next) + ". It applies when the model next loads.");
+        showMain();
+    }
+
+    private String temperatureMode() { return getPreferences(MODE_PRIVATE).getString(TEMPERATURE_KEY, "balanced"); }
+    private float temperatureValue() {
+        String mode = temperatureMode();
+        return "precise".equals(mode) ? 0.2f : "creative".equals(mode) ? 0.8f : 0.3f;
+    }
+    private String temperatureLabel() {
+        String mode = temperatureMode();
+        String name = "precise".equals(mode) ? "Precise" : "creative".equals(mode) ? "Creative" : "Balanced";
+        return name + " · " + String.format(Locale.US, "%.1f", temperatureValue());
+    }
+    private void cycleTemperature() {
+        String mode = temperatureMode();
+        String next = "precise".equals(mode) ? "balanced" : "balanced".equals(mode) ? "creative" : "precise";
+        getPreferences(MODE_PRIVATE).edit().putString(TEMPERATURE_KEY, next).apply();
+        toast("Sampling: " + ("precise".equals(next) ? "Precise" : "balanced".equals(next) ? "Balanced" : "Creative"));
+        showMain();
+    }
+
+    private boolean animationsEnabled() { return getPreferences(MODE_PRIVATE).getBoolean(ANIMATIONS_KEY, true); }
+    private void toggleAnimations() {
+        boolean enabled = !animationsEnabled();
+        getPreferences(MODE_PRIVATE).edit().putBoolean(ANIMATIONS_KEY, enabled).apply();
+        toast(enabled ? "Subtle screen animations enabled." : "Animations reduced.");
+        showMain();
+    }
+    private void toggleAutoUnload() {
+        boolean enabled = !getPreferences(MODE_PRIVATE).getBoolean(AUTO_UNLOAD_KEY, false);
+        getPreferences(MODE_PRIVATE).edit().putBoolean(AUTO_UNLOAD_KEY, enabled).apply();
+        toast(enabled ? "The model will unload when the app leaves the screen and reload for your next chat." : "Model stays loaded while the app is in the background.");
+        showMain();
+    }
+
+    private void showAssistantInstructions() {
+        EditText editor = new EditText(this);
+        editor.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        editor.setMinLines(4);
+        editor.setMaxLines(8);
+        editor.setGravity(Gravity.TOP | Gravity.START);
+        editor.setPadding(dp(12), dp(10), dp(12), dp(10));
+        editor.setHint("Example: Use short bullet points; write in a calm, practical tone.");
+        editor.setText(getPreferences(MODE_PRIVATE).getString(CUSTOM_INSTRUCTIONS_KEY, ""));
+        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
+                .setTitle("Assistant persona & instructions")
+                .setMessage("Add a name, role, tone, or response preference. The app's core safety rules remain in effect.")
+                .setView(editor)
+                .setNeutralButton("Reset", (dialog, which) -> {
+                    getPreferences(MODE_PRIVATE).edit().remove(CUSTOM_INSTRUCTIONS_KEY).apply();
+                    toast("Assistant instructions reset.");
+                    showMain();
+                })
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", (dialog, which) -> {
+                    getPreferences(MODE_PRIVATE).edit().putString(CUSTOM_INSTRUCTIONS_KEY, editor.getText().toString().trim()).apply();
+                    toast("Instructions saved; applied to your next reply.");
+                    showMain();
+                })
+                .show();
     }
 
     private void showOnboarding(int page) {
@@ -585,6 +671,15 @@ public class MainActivity extends Activity {
         else if ("chat".equals(activeTab)) renderChat();
         else if ("model".equals(activeTab)) renderModel();
         else renderSettings();
+        if (animationsEnabled()) {
+            pageBody.setAlpha(0f);
+            pageBody.setTranslationY(dp(6));
+            pageBody.animate().alpha(1f).translationY(0f).setDuration(170).start();
+        } else {
+            pageBody.animate().cancel();
+            pageBody.setAlpha(1f);
+            pageBody.setTranslationY(0f);
+        }
     }
 
     private void setSvgIcon(ImageView target, String assetName, int fallbackResource, int tint) {
@@ -1267,8 +1362,15 @@ public class MainActivity extends Activity {
         list.addView(sectionLabel("CHAT PREFERENCES"));
         list.addView(settingRow("Appearance", "Theme: " + themeLabel() + " · tap to change", v -> cycleTheme()));
         list.addView(settingRow("Response length", responseLengthLabel() + " · tap to change", v -> cycleResponseLength()));
+        list.addView(settingRow("Context window", contextSizeLabel() + " · higher values use more memory", v -> cycleContextSize()));
+        list.addView(settingRow("Temperature", temperatureLabel() + " · tap to change creativity", v -> cycleTemperature()));
+        String customInstructions = getPreferences(MODE_PRIVATE).getString(CUSTOM_INSTRUCTIONS_KEY, "").trim();
+        list.addView(settingRow("Assistant persona", customInstructions.isEmpty() ? "Set a name, tone, or role" : "Custom instructions saved · tap to edit", v -> showAssistantInstructions()));
         boolean restoredContext = getPreferences(MODE_PRIVATE).getBoolean(RESTORED_CONTEXT_KEY, true);
         list.addView(settingRow("Restored-chat context", restoredContext ? "On · include recent messages after reopening a chat" : "Off · each restored-chat reply starts fresh", v -> toggleRestoredContext()));
+        boolean autoUnload = getPreferences(MODE_PRIVATE).getBoolean(AUTO_UNLOAD_KEY, false);
+        list.addView(settingRow("Auto-unload model", autoUnload ? "On · unload in background; load for next chat" : "Off · keep model loaded while app is backgrounded", v -> toggleAutoUnload()));
+        list.addView(settingRow("Motion", animationsEnabled() ? "On · subtle screen transitions" : "Reduced · no screen transitions", v -> toggleAnimations()));
         boolean speechEnabled = getPreferences(MODE_PRIVATE).getBoolean(SPEAK_REPLIES_KEY, false);
         list.addView(settingRow("Spoken replies", speechEnabled ? "On · uses your installed system voice" : "Off · tap to enable system voice output", v -> toggleSpokenReplies()));
         list.addView(settingRow("Voice language", voiceLanguageLabel() + " · tap to change", v -> cycleVoiceLanguage()));
@@ -1348,12 +1450,14 @@ public class MainActivity extends Activity {
             toast("Download a local model before starting AI chat.");
             return;
         }
-        if ("titulm-mpt-1b".equals(selectedModelId) || "smollm2-17b".equals(selectedModelId)) {
+        if ("titulm-mpt-1b".equals(selectedModelId) || "smollm2-17b".equals(selectedModelId) || contextSize() == 8192) {
             ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
             ActivityManager activityManager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
             if (activityManager != null) activityManager.getMemoryInfo(memoryInfo);
-            long minimumFreeMemory = "titulm-mpt-1b".equals(selectedModelId)
-                    ? 1_200L * 1024L * 1024L : 1_800L * 1024L * 1024L;
+            long minimumFreeMemory = "smollm2-17b".equals(selectedModelId) ? 1_800L * 1024L * 1024L
+                    : "titulm-mpt-1b".equals(selectedModelId) ? 1_200L * 1024L * 1024L
+                    : 768L * 1024L * 1024L;
+            if (contextSize() == 8192) minimumFreeMemory += 512L * 1024L * 1024L;
             if (activityManager != null && memoryInfo.availMem < minimumFreeMemory) {
                 toast("Low free memory for this model. Close other apps or choose a smaller model.");
                 return;
@@ -1379,7 +1483,8 @@ public class MainActivity extends Activity {
         final boolean includeRestoredContext = getPreferences(MODE_PRIVATE).getBoolean(RESTORED_CONTEXT_KEY, true);
         final String inferencePrompt = buildInferencePrompt(question, seedingHistory && includeRestoredContext);
         restoreHistoryContext = false;
-        LocalModelBridge.generate(this, getModelFile().getAbsolutePath(), selectedSystemPrompt(), inferencePrompt, responseTokenBudget(), new LocalModelBridge.Callback() {
+        LocalModelBridge.generate(this, getModelFile().getAbsolutePath(), selectedSystemPrompt(), inferencePrompt,
+                responseTokenBudget(), contextSize(), temperatureValue(), new LocalModelBridge.Callback() {
             @Override public void onToken(String token, boolean done) {
                 if (token != null) generated.append(token);
                 reply.text = visibleAssistantText(generated.toString());

@@ -38,6 +38,7 @@ static llama_context                    * g_context;
 static common_batch                       g_batch;
 static common_chat_templates_ptr          g_chat_templates;
 static common_sampler                   * g_sampler;
+static int                                  g_context_size = DEFAULT_CONTEXT_SIZE;
 
 extern "C"
 JNIEXPORT void JNICALL
@@ -112,8 +113,13 @@ static common_sampler *new_sampler(float temp) {
 
 extern "C"
 JNIEXPORT jint JNICALL
-Java_com_arm_aichat_internal_InferenceEngineImpl_prepare(JNIEnv * /*env*/, jobject /*unused*/) {
-    auto *context = init_context(g_model);
+Java_com_arm_aichat_internal_InferenceEngineImpl_prepare(JNIEnv * /*env*/, jobject /*unused*/, jint requested_context_size) {
+    const int trained_context_size = (int) llama_model_n_ctx_train(g_model);
+    g_context_size = std::min(std::max((int) requested_context_size, 1024), trained_context_size);
+    if (g_context_size < requested_context_size) {
+        LOGw("Requested context %d exceeds model training context %d; using %d", (int) requested_context_size, trained_context_size, g_context_size);
+    }
+    auto *context = init_context(g_model, g_context_size);
     if (!context) { return 1; }
     g_context = context;
     g_batch = common_batch(context);
@@ -327,7 +333,7 @@ static int decode_tokens_in_batches(
         LOGv("%s: Preparing a batch size of %d starting at: %d", __func__, cur_batch_size, i);
 
         // Shift context if current batch cannot fit into the context
-        if (start_pos + i + cur_batch_size >= DEFAULT_CONTEXT_SIZE - OVERFLOW_HEADROOM) {
+        if (start_pos + i + cur_batch_size >= g_context_size - OVERFLOW_HEADROOM) {
             LOGw("%s: Current batch won't fit into context! Shifting...", __func__);
             shift_context();
         }
@@ -379,7 +385,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_processSystemPrompt(
     LOGv("%s: System prompt token count: %zu", __func__, system_tokens.size());
 
     // Handle context overflow
-    const int max_batch_size = DEFAULT_CONTEXT_SIZE - OVERFLOW_HEADROOM;
+    const int max_batch_size = g_context_size - OVERFLOW_HEADROOM;
     if ((int) system_tokens.size() > max_batch_size) {
         LOGe("%s: System prompt too long for context! %d tokens, max: %d",
              __func__, (int) system_tokens.size(), max_batch_size);
@@ -403,10 +409,18 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_processUserPrompt(
         JNIEnv *env,
         jobject /*unused*/,
         jstring juser_prompt,
-        jint n_predict
+        jint n_predict,
+        jfloat temperature
 ) {
     // Reset short-term states
     reset_short_term_states();
+    if (temperature < 0.0f || temperature > 2.0f) {
+        LOGe("Temperature outside supported range: %f", temperature);
+        return 1;
+    }
+    if (g_sampler) common_sampler_free(g_sampler);
+    g_sampler = new_sampler(temperature);
+    if (!g_sampler) return 1;
 
     // Obtain and tokenize user prompt
     const auto *const user_prompt = env->GetStringUTFChars(juser_prompt, nullptr);
@@ -425,11 +439,12 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_processUserPrompt(
     LOGv("%s: User prompt token count: %zu", __func__, user_tokens.size());
 
     // Ensure user prompt doesn't exceed the context size by truncating if necessary.
-    const int user_prompt_size = (int) user_tokens.size();
-    const int max_batch_size = DEFAULT_CONTEXT_SIZE - OVERFLOW_HEADROOM;
+    int user_prompt_size = (int) user_tokens.size();
+    const int max_batch_size = g_context_size - OVERFLOW_HEADROOM;
     if (user_prompt_size > max_batch_size) {
         const int skipped_tokens = user_prompt_size - max_batch_size;
         user_tokens.resize(max_batch_size);
+        user_prompt_size = (int) user_tokens.size();
         LOGw("%s: User prompt too long! Skipped %d tokens!", __func__, skipped_tokens);
     }
 
@@ -487,7 +502,7 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_generateNextToken(
         jobject /*unused*/
 ) {
     // Infinite text generation via context shifting
-    if (current_position >= DEFAULT_CONTEXT_SIZE - OVERFLOW_HEADROOM) {
+    if (current_position >= g_context_size - OVERFLOW_HEADROOM) {
         LOGw("%s: Context full! Shifting...", __func__);
         shift_context();
     }

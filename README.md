@@ -8,6 +8,8 @@
 - Optional on-device voice dictation (Android 12+ with an installed offline speech model) and optional spoken replies through the system voice engine.
 - A visible **Stop** control while the model is generating, with a cancellable native inference loop.
 - On-device chat persistence, model download progress and validation, dark/light/system appearance, and a private go-bag checklist.
+- Working inference controls: response length, context window, sampling temperature, custom persona/style instructions, restored-chat context, and optional background model unloading.
+- Subtle screen transitions with a reduced-motion switch. GGUF chat templates are read from model metadata; the Android native build currently uses CPU backends only.
 - Safety-oriented survival guidance for water, shelter, first aid, food safety, navigation, communications, and essential supplies. It rejects explicit requests for weapons, explosives, traps, and harming people.
 - Donate action opens [raihan.sites.bd](https://raihan.sites.bd).
 
