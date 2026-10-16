@@ -1,1 +1,8 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:fillColor="#635BFF" android:pathData="M54,6A48,48 0,1 0,54 102A48,48 0,1 0,54 6"/><path android:fillColor="#FFFFFF" android:pathData="M54,23L61,43L82,44L66,57L71,78L54,66L37,78L42,57L26,44L47,43Z"/><path android:fillColor="#DCE0FF" android:pathData="M54,31L58,45L72,46L61,54L64,68L54,60Z"/></vector>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- ring -->
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="4.6" android:pathData="M54,54m-26,0a26,26 0,1 1,52 0a26,26 0,1 1,-52 0"/>
+    <!-- chevron -->
+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="4.4" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M42.5,63.5L54,40.5L65.5,63.5"/>
+    <!-- dot -->
+    <path android:fillColor="#FFFFFF" android:pathData="M54,57m-2.9,0a2.9,2.9 0,1 1,5.8 0a2.9,2.9 0,1 1,-5.8 0"/>
+</vector>
