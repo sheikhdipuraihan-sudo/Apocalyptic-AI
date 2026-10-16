@@ -62,6 +62,8 @@ public class MainActivity extends Activity {
     private static final String ACTIVE_SESSION_KEY = "active_chat_session_id";
     private static final String SPEAK_REPLIES_KEY = "speak_replies_enabled";
     private static final String VOICE_LANGUAGE_KEY = "voice_language";
+    private static final String RESPONSE_LENGTH_KEY = "response_length_mode";
+    private static final String RESTORED_CONTEXT_KEY = "restored_chat_context_enabled";
     private static final String DOWNLOAD_KEY = "model_download_id";
     private static final String SELECTED_MODEL_KEY = "selected_model_id";
     private static final String SYSTEM_PROMPT = "You are Apocalyptic AI, a concise on-device preparedness assistant. Give direct, practical safety guidance. Never help with weapons, explosives, traps, or harming people. For emergencies, recommend local emergency services or qualified professionals. Return only the answer; do not reveal private reasoning.";
@@ -1262,15 +1264,21 @@ public class MainActivity extends Activity {
         privacy.setOnClickListener(v -> showPrivacyDetails());
         list.addView(privacy);
 
-        list.addView(settingRow("Appearance", "Theme: " + themeLabel() + " (tap to change)", v -> cycleTheme()));
+        list.addView(sectionLabel("CHAT PREFERENCES"));
+        list.addView(settingRow("Appearance", "Theme: " + themeLabel() + " · tap to change", v -> cycleTheme()));
+        list.addView(settingRow("Response length", responseLengthLabel() + " · tap to change", v -> cycleResponseLength()));
+        boolean restoredContext = getPreferences(MODE_PRIVATE).getBoolean(RESTORED_CONTEXT_KEY, true);
+        list.addView(settingRow("Restored-chat context", restoredContext ? "On · include recent messages after reopening a chat" : "Off · each restored-chat reply starts fresh", v -> toggleRestoredContext()));
         boolean speechEnabled = getPreferences(MODE_PRIVATE).getBoolean(SPEAK_REPLIES_KEY, false);
         list.addView(settingRow("Spoken replies", speechEnabled ? "On · uses your installed system voice" : "Off · tap to enable system voice output", v -> toggleSpokenReplies()));
         list.addView(settingRow("Voice language", voiceLanguageLabel() + " · tap to change", v -> cycleVoiceLanguage()));
+        list.addView(sectionLabel("DATA & APP"));
         list.addView(settingRow("Recent chats", "Open conversations saved on this device", v -> openHistory()));
         list.addView(settingRow("My go-bag checklist", checklistSummary(), v -> openChecklist()));
+        list.addView(settingRow("Clear this conversation", "Remove locally saved chat messages", v -> confirmClearChat()));
+        list.addView(sectionLabel("ABOUT & SAFETY"));
         list.addView(settingRow("Preparedness safety", "Guidance is cautious and non-violent", v -> showSafety()));
         list.addView(settingRow("Open-source notices", "Runtime components and model attribution", v -> showThirdPartyNotices()));
-        list.addView(settingRow("Clear this conversation", "Remove locally saved chat messages", v -> confirmClearChat()));
         list.addView(settingRow("Donate", "Support the project", v -> openDonate()));
         list.addView(settingRow("About", "Version " + BuildConfig.VERSION_NAME + " · Apocalyptic AI", v -> showAbout()));
         scroll.addView(list);
@@ -1288,6 +1296,46 @@ public class MainActivity extends Activity {
         row.setOnClickListener(listener);
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2); rp.topMargin = dp(8); row.setLayoutParams(rp);
         return row;
+    }
+
+    private TextView sectionLabel(String text) {
+        TextView heading = label(text, 11, MUTED);
+        heading.setTypeface(null, Typeface.BOLD);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = dp(18);
+        params.bottomMargin = dp(2);
+        heading.setLayoutParams(params);
+        return heading;
+    }
+
+    private String responseLengthMode() {
+        return getPreferences(MODE_PRIVATE).getString(RESPONSE_LENGTH_KEY, "fast");
+    }
+
+    private int responseTokenBudget() {
+        String mode = responseLengthMode();
+        return "detailed".equals(mode) ? 320 : "balanced".equals(mode) ? 160 : 128;
+    }
+
+    private String responseLengthLabel() {
+        String mode = responseLengthMode();
+        String label = "detailed".equals(mode) ? "Detailed" : "balanced".equals(mode) ? "Balanced" : "Fast";
+        return label + " · up to " + responseTokenBudget() + " tokens";
+    }
+
+    private void cycleResponseLength() {
+        String mode = responseLengthMode();
+        String next = "fast".equals(mode) ? "balanced" : "balanced".equals(mode) ? "detailed" : "fast";
+        getPreferences(MODE_PRIVATE).edit().putString(RESPONSE_LENGTH_KEY, next).apply();
+        toast("Response length: " + ("fast".equals(next) ? "Fast" : "balanced".equals(next) ? "Balanced" : "Detailed"));
+        showMain();
+    }
+
+    private void toggleRestoredContext() {
+        boolean enabled = !getPreferences(MODE_PRIVATE).getBoolean(RESTORED_CONTEXT_KEY, true);
+        getPreferences(MODE_PRIVATE).edit().putBoolean(RESTORED_CONTEXT_KEY, enabled).apply();
+        toast(enabled ? "Recent restored-chat context enabled." : "Restored chats will start each new reply without previous messages.");
+        showMain();
     }
 
     private void sendMessage() {
@@ -1328,9 +1376,10 @@ public class MainActivity extends Activity {
         final TextView replyView = lastAssistantBody();
         final StringBuilder generated = new StringBuilder();
         final boolean seedingHistory = restoreHistoryContext;
-        final String inferencePrompt = buildInferencePrompt(question, seedingHistory);
+        final boolean includeRestoredContext = getPreferences(MODE_PRIVATE).getBoolean(RESTORED_CONTEXT_KEY, true);
+        final String inferencePrompt = buildInferencePrompt(question, seedingHistory && includeRestoredContext);
         restoreHistoryContext = false;
-        LocalModelBridge.generate(this, getModelFile().getAbsolutePath(), selectedSystemPrompt(), inferencePrompt, new LocalModelBridge.Callback() {
+        LocalModelBridge.generate(this, getModelFile().getAbsolutePath(), selectedSystemPrompt(), inferencePrompt, responseTokenBudget(), new LocalModelBridge.Callback() {
             @Override public void onToken(String token, boolean done) {
                 if (token != null) generated.append(token);
                 reply.text = visibleAssistantText(generated.toString());

@@ -41,7 +41,7 @@ object LocalModelBridge {
     }
 
     @JvmStatic
-    fun generate(context: Context, path: String, systemPrompt: String, prompt: String, callback: Callback) {
+    fun generate(context: Context, path: String, systemPrompt: String, prompt: String, maxNewTokens: Int, callback: Callback) {
         synchronized(cancellationLock) { stopRequested.set(false) }
         scope.launch {
             try {
@@ -83,7 +83,7 @@ object LocalModelBridge {
                     withContext(Dispatchers.Main) { callback.onToken("", true) }
                     return@launch
                 }
-                e.sendUserPrompt(prompt, 160).collect { token -> withContext(Dispatchers.Main) { callback.onToken(token, false) } }
+                e.sendUserPrompt(prompt, maxNewTokens).collect { token -> withContext(Dispatchers.Main) { callback.onToken(token, false) } }
                 withContext(Dispatchers.Main) { callback.onToken("", true) }
             } catch (t: Throwable) { withContext(Dispatchers.Main) { callback.onError(t.message ?: "Local inference failed") } }
         }
