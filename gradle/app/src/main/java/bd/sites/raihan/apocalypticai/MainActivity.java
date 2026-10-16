@@ -20,6 +20,8 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.StatFs;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -50,6 +52,7 @@ import java.io.InputStreamReader;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
@@ -72,6 +75,9 @@ public class MainActivity extends Activity {
     private static final String ANIMATIONS_KEY = "animations_enabled";
     private static final String DOWNLOAD_KEY = "model_download_id";
     private static final String SELECTED_MODEL_KEY = "selected_model_id";
+    private static final String RETIRED_TITULM_CLEANUP_KEY = "retired_titulm_model_cleanup_v1";
+    private static final String RETIRED_TITULM_MODEL_ID = "titulm-mpt-1b";
+    private static final String RETIRED_TITULM_FILE = "titulm-mpt-1b-v2.0.i1-Q4_K_M.gguf";
     private static final String SYSTEM_PROMPT = "You are Apocalyptic AI, a concise on-device preparedness assistant. Give direct, practical safety guidance. Never help with weapons, explosives, traps, or harming people. For emergencies, recommend local emergency services or qualified professionals. Return only the answer; do not reveal private reasoning.";
     private static final String[] KIT_ITEMS = {"Safe drinking water", "Water treatment method", "Shelf-stable food", "First-aid kit", "Essential medicines", "Warm and rain layers", "Light and spare power", "Paper map and compass", "Whistle or signal", "Repair kit and cordage", "Hygiene supplies", "Emergency contacts and plan"};
 
@@ -79,7 +85,7 @@ public class MainActivity extends Activity {
         final String id, name, details, fileName, url, attribution, sourceUrl, quantizationUrl, license;
         final long expectedBytes;
         ModelSpec(String id, String name, String details, String fileName, String url, long expectedBytes,
-                  String attribution, String sourceUrl, String quantizationUrl, String license) {
+        String attribution, String sourceUrl, String quantizationUrl, String license) {
             this.id = id;
             this.name = name;
             this.details = details;
@@ -91,31 +97,87 @@ public class MainActivity extends Activity {
             this.quantizationUrl = quantizationUrl;
             this.license = license;
         }
+        int recommendedRamGb() {
+            long gib = 1024L * 1024L * 1024L;
+            if (expectedBytes <= 768L * 1024L * 1024L) return 4;
+            if (expectedBytes <= 1536L * 1024L * 1024L) return 6;
+            if (expectedBytes <= 3L * gib) return 8;
+            if (expectedBytes <= 5L * gib) return 12;
+            return 16;
+        }
+        String hardwareTier() {
+            int ram = recommendedRamGb();
+            return ram <= 4 ? "Low-end" : ram <= 6 ? "Mid-range" : ram <= 8 ? "High-end" : "Very high-end";
+        }
     }
 
-    private static final String DEFAULT_MODEL_ID = "titulm-mpt-1b";
-    // Keep downloads modest for phones; the first-run default is the requested compact TituLM 1B.
+    private static final String DEFAULT_MODEL_ID = "qwen-05b";
+    // Curated mobile GGUF catalog; exact download sizes are checked against immutable Hugging Face revisions.
     private static final ModelSpec[] MODELS = {
-            new ModelSpec("titulm-mpt-1b", "TituLM · 1B", "Bangla + English · Q4_K_M · about 870 MiB · fast default",
-                    "titulm-mpt-1b-v2.0.i1-Q4_K_M.gguf",
-                    "https://huggingface.co/mradermacher/titulm-mpt-1b-v2.0-i1-GGUF/resolve/main/titulm-mpt-1b-v2.0.i1-Q4_K_M.gguf?download=true",
-                    911_355_520L, "Hishab Technologies", "https://huggingface.co/hishab/titulm-mpt-1b-v2.0", "https://huggingface.co/mradermacher/titulm-mpt-1b-v2.0-i1-GGUF", "Apache-2.0"),
-            new ModelSpec("qwen3-06b", "Qwen3 · 0.6B", "Newer general-purpose model · Q4_K_M · about 462 MiB",
-                    "Qwen_Qwen3-0.6B-Q4_K_M.gguf",
-                    "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/main/Qwen_Qwen3-0.6B-Q4_K_M.gguf?download=true",
-                    484_220_320L, "Qwen Team", "https://huggingface.co/Qwen/Qwen3-0.6B", "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF", "Apache-2.0"),
-            new ModelSpec("qwen-05b", "Qwen2.5 · 0.5B", "Compact chat model · Q4_K_M · about 379 MiB",
+            new ModelSpec("qwen-05b", "Qwen2.5 · 0.5B", "Fast multilingual instruct · Q4_K_M",
                     "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
-                    "https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf?download=true",
+                    "https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF/resolve/41ba88dbac95fed2528c92514c131d73eb5a174b/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
                     397_808_192L, "Qwen Team", "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct", "https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF", "Apache-2.0"),
-            new ModelSpec("smollm2-360m", "SmolLM2 · 360M", "Smallest download · Q4_K_M · about 258 MiB",
+            new ModelSpec("smollm2-360m", "SmolLM2 · 360M", "Smallest download · compact instruct · Q4_K_M",
                     "SmolLM2-360M-Instruct-Q4_K_M.gguf",
-                    "https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf?download=true",
+                    "https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/7be6f65f1db715fe5dc5a4634c0d459b4eed42ec/SmolLM2-360M-Instruct-Q4_K_M.gguf",
                     270_590_880L, "Hugging Face Smol Models", "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct", "https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF", "Apache-2.0"),
-            new ModelSpec("smollm2-17b", "SmolLM2 · 1.7B", "Most capable option · Q4_K_M · about 1.0 GiB · newer phones (6 GB+ RAM recommended)",
+            new ModelSpec("qwen3-06b", "Qwen3 · 0.6B", "Compact multilingual general-purpose instruct · Q4_K_M",
+                    "Qwen_Qwen3-0.6B-Q4_K_M.gguf",
+                    "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/60b85c0e3d8fe0f6474f406922a26d12aca4550d/Qwen_Qwen3-0.6B-Q4_K_M.gguf",
+                    484_220_320L, "Qwen Team", "https://huggingface.co/Qwen/Qwen3-0.6B", "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF", "Apache-2.0"),
+            new ModelSpec("gemma3-1b", "Gemma 3 · 1B", "Small multilingual text instruct · Q4_K_M",
+                    "gemma-3-1b-it-Q4_K_M.gguf",
+                    "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/f9c28bcd85737ffc5aef028638d3341d49869c27/gemma-3-1b-it-Q4_K_M.gguf",
+                    806_058_240L, "Google Gemma", "https://huggingface.co/google/gemma-3-1b-it", "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF", "Gemma terms"),
+            new ModelSpec("llama32-1b", "Llama 3.2 · 1B", "Compact text instruct · multilingual · Q4_K_M",
+                    "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+                    "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/067b946cf014b7c697f3654f621d577a3e3afd1c/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+                    807_694_464L, "Meta Llama", "https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct", "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF", "Llama 3.2 Community License"),
+            new ModelSpec("qwen3-17b", "Qwen3 · 1.7B", "Multilingual instruct with optional reasoning · Q4_K_M",
+                    "Qwen_Qwen3-1.7B-Q4_K_M.gguf",
+                    "https://huggingface.co/bartowski/Qwen_Qwen3-1.7B-GGUF/resolve/dcb19155b962dbb6389f4691a982043a8e651022/Qwen_Qwen3-1.7B-Q4_K_M.gguf",
+                    1_282_439_584L, "Qwen Team", "https://huggingface.co/Qwen/Qwen3-1.7B", "https://huggingface.co/bartowski/Qwen_Qwen3-1.7B-GGUF", "Apache-2.0"),
+            new ModelSpec("deepseek-r1-1p5b", "DeepSeek R1 Distill · 1.5B", "Reasoning-focused · may respond more slowly · Q4_K_M",
+                    "DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+                    "https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF/resolve/9cc28b17e86fa2415fcb070f8ee5ec27c965aa61/DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+                    1_117_320_800L, "DeepSeek", "https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B", "https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF", "MIT"),
+            new ModelSpec("smollm2-17b", "SmolLM2 · 1.7B", "On-device-oriented instruct · Q4_K_M",
                     "smollm2-1.7b-instruct-q4_k_m.gguf",
-                    "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf?download=true",
-                    1_055_609_536L, "Hugging Face Smol Models", "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct", "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF", "Apache-2.0")
+                    "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/2d4a76a30b4af41ecd395c35725ac11688d4cfe4/smollm2-1.7b-instruct-q4_k_m.gguf",
+                    1_055_609_536L, "Hugging Face Smol Models", "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct", "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF", "Apache-2.0"),
+            new ModelSpec("granite31-2b", "Granite 3.1 · 2B", "Compact enterprise instruct · multilingual · Q4_K_M",
+                    "granite-3.1-2b-instruct-Q4_K_M.gguf",
+                    "https://huggingface.co/bartowski/granite-3.1-2b-instruct-GGUF/resolve/e47b8b46c04cede00f9e19d5a846551b14b2efce/granite-3.1-2b-instruct-Q4_K_M.gguf",
+                    1_545_295_424L, "IBM Granite", "https://huggingface.co/ibm-granite/granite-3.1-2b-instruct", "https://huggingface.co/bartowski/granite-3.1-2b-instruct-GGUF", "Apache-2.0"),
+            new ModelSpec("qwen25-3b", "Qwen2.5 · 3B", "Multilingual instruction, coding and math · Q4_K_M",
+                    "qwen2.5-3b-instruct-q4_k_m.gguf",
+                    "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/7dabda4d13d513e3e842b20f0d435c732f172cbe/qwen2.5-3b-instruct-q4_k_m.gguf",
+                    2_104_932_768L, "Qwen Team", "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct", "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF", "Model-specific terms · see card"),
+            new ModelSpec("llama32-3b", "Llama 3.2 · 3B", "Higher-quality text instruct · multilingual · Q4_K_M",
+                    "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+                    "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/5ab33fa94d1d04e903623ae72c95d1696f09f9e8/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+                    2_019_377_696L, "Meta Llama", "https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct", "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF", "Llama 3.2 Community License"),
+            new ModelSpec("gemma3-4b", "Gemma 3 · 4B", "Multilingual text instruct · Q4_K_M · high-end phone",
+                    "gemma-3-4b-it-Q4_K_M.gguf",
+                    "https://huggingface.co/unsloth/gemma-3-4b-it-GGUF/resolve/5a3566e716d80f709ed7b79817eaf7733d2a1fce/gemma-3-4b-it-Q4_K_M.gguf",
+                    2_489_894_016L, "Google Gemma", "https://huggingface.co/google/gemma-3-4b-it", "https://huggingface.co/unsloth/gemma-3-4b-it-GGUF", "Gemma terms"),
+            new ModelSpec("phi4-mini", "Phi-4 mini · 3.8B", "Compact reasoning and multilingual instruct · Q4_K_M",
+                    "Phi-4-mini-instruct-Q4_K_M.gguf",
+                    "https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF/resolve/78eb92a46fc37e6b524df991ed9aca9bc6aa7b80/Phi-4-mini-instruct-Q4_K_M.gguf",
+                    2_491_874_272L, "Microsoft Phi", "https://huggingface.co/microsoft/Phi-4-mini-instruct", "https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF", "MIT"),
+            new ModelSpec("qwen3-4b", "Qwen3 · 4B", "Multilingual reasoning and general chat · Q4_K_M",
+                    "Qwen3-4B-Q4_K_M.gguf",
+                    "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf",
+                    2_497_280_256L, "Qwen Team", "https://huggingface.co/Qwen/Qwen3-4B", "https://huggingface.co/Qwen/Qwen3-4B-GGUF", "Apache-2.0"),
+            new ModelSpec("gemma4-e2b", "Gemma 4 · E2B", "New mobile-oriented Gemma generation · Q4_K_M · higher-end phone",
+                    "gemma-4-E2B-it-Q4_K_M.gguf",
+                    "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/0314792d7f1f7e229411f620751375812bb9faf2/gemma-4-E2B-it-Q4_K_M.gguf",
+                    3_106_738_272L, "Google Gemma", "https://huggingface.co/google/gemma-4-E2B-it", "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF", "Apache-2.0"),
+            new ModelSpec("mistral7b-v03", "Mistral · 7B Instruct v0.3", "Flagship-only · very large download · CPU inference is slow · Q4_K_M",
+                    "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
+                    "https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/61fd4167fff3ab01ee1cfe0da183fa27a944db48/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
+                    4_372_812_000L, "Mistral AI", "https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3", "https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF", "Apache-2.0")
     };
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -135,6 +197,9 @@ public class MainActivity extends Activity {
     private FrameLayout navigationOverlay;
     private String activeTab = "chat";
     private String selectedModelId = DEFAULT_MODEL_ID;
+    private String modelSearchQuery = "";
+    private String modelFilter = "all";
+    private boolean modelSortDescending;
     private String activeConversationId = "";
     private boolean checklistOpen;
     private long downloadId = -1L;
@@ -184,6 +249,21 @@ public class MainActivity extends Activity {
             return legacyId;
         }
         return -1L;
+    }
+
+    private void cleanupRetiredTituModel() {
+        android.content.SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        if (prefs.getBoolean(RETIRED_TITULM_CLEANUP_KEY, false)) return;
+        long retiredDownload = prefs.getLong(modelDownloadKey(RETIRED_TITULM_MODEL_ID), -1L);
+        DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+        if (retiredDownload > 0L && manager != null) manager.remove(retiredDownload);
+        File directory = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+        if (directory == null) directory = getFilesDir();
+        File retiredFile = new File(directory, RETIRED_TITULM_FILE);
+        boolean removed = !retiredFile.exists() || retiredFile.delete();
+        android.content.SharedPreferences.Editor editor = prefs.edit().remove(modelDownloadKey(RETIRED_TITULM_MODEL_ID));
+        if (removed) editor.putBoolean(RETIRED_TITULM_CLEANUP_KEY, true);
+        editor.apply();
     }
 
     private void saveDownloadId(String modelId, long id) {
@@ -250,6 +330,8 @@ public class MainActivity extends Activity {
         activeConversationId = getPreferences(MODE_PRIVATE).getString(ACTIVE_SESSION_KEY, "");
         selectedModelId = getPreferences(MODE_PRIVATE).getString(SELECTED_MODEL_KEY, DEFAULT_MODEL_ID);
         selectedModelId = findModel(selectedModelId).id;
+        getPreferences(MODE_PRIVATE).edit().putString(SELECTED_MODEL_KEY, selectedModelId).apply();
+        cleanupRetiredTituModel();
         downloadId = savedDownloadId(selectedModelId);
         if (!getPreferences(MODE_PRIVATE).getBoolean("onboarding_complete", false)) showOnboarding(0);
         else showMain();
@@ -909,19 +991,73 @@ public class MainActivity extends Activity {
         TextView title = label("Choose a local model", 23, INK);
         title.setTypeface(null, Typeface.BOLD);
         pageBody.addView(title);
-        TextView subtitle = label("Compact Apache-2.0 models · runs on this phone", 13, MUTED);
+        TextView subtitle = label("Search models and find one that fits your phone", 13, MUTED);
         LinearLayout.LayoutParams sub = new LinearLayout.LayoutParams(-1, -2);
         sub.topMargin = dp(4); sub.bottomMargin = dp(14);
         pageBody.addView(subtitle, sub);
 
+        LinearLayout searchRow = new LinearLayout(this);
+        searchRow.setOrientation(LinearLayout.HORIZONTAL);
+        searchRow.setGravity(Gravity.CENTER_VERTICAL);
+        EditText searchInput = new EditText(this);
+        searchInput.setSingleLine(true);
+        searchInput.setTextSize(14);
+        searchInput.setTextColor(INK);
+        searchInput.setHintTextColor(MUTED);
+        searchInput.setHint("Search name, family, license…");
+        searchInput.setPadding(dp(12), 0, dp(12), 0);
+        searchInput.setBackground(round(CARD, 13));
+        searchInput.setText(modelSearchQuery);
+        searchInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { modelSearchQuery = s.toString(); }
+            @Override public void afterTextChanged(Editable s) { }
+        });
+        LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        inputParams.rightMargin = dp(8);
+        searchRow.addView(searchInput, inputParams);
+        TextView searchButton = action("Search", true);
+        searchRow.addView(searchButton, new LinearLayout.LayoutParams(dp(82), dp(48)));
+        searchButton.setOnClickListener(v -> {
+            modelSearchQuery = searchInput.getText().toString().trim();
+            Object inputMethod = getSystemService(INPUT_METHOD_SERVICE);
+            if (inputMethod instanceof InputMethodManager) ((InputMethodManager) inputMethod).hideSoftInputFromWindow(searchInput.getWindowToken(), 0);
+            showMain();
+        });
+        pageBody.addView(searchRow);
+
+        LinearLayout filterRow = new LinearLayout(this);
+        filterRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams filterRowParams = new LinearLayout.LayoutParams(-1, -2);
+        filterRowParams.topMargin = dp(8);
+        filterRowParams.bottomMargin = dp(8);
+        TextView filterButton = action(modelFilterButtonLabel(), false);
+        LinearLayout.LayoutParams filterButtonParams = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        filterButtonParams.rightMargin = dp(8);
+        filterRow.addView(filterButton, filterButtonParams);
+        filterButton.setOnClickListener(v -> openModelFilterDialog());
+        TextView sortButton = action(modelSortDescending ? "Largest first" : "Smallest first", false);
+        filterRow.addView(sortButton, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        sortButton.setOnClickListener(v -> openModelSortDialog());
+        pageBody.addView(filterRow, filterRowParams);
+
         ScrollView scroll = new ScrollView(this);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        TextView available = label("AVAILABLE MODELS", 11, MUTED);
+        ArrayList<ModelSpec> visibleModels = modelsMatchingPicker();
+        int installedCount = 0;
+        for (ModelSpec model : MODELS) if (validModelFile(model)) installedCount++;
+        TextView available = label(visibleModels.size() + " of " + MODELS.length + " models match · " + installedCount + " installed", 11, MUTED);
         available.setTypeface(null, Typeface.BOLD);
         available.setLetterSpacing(0.08f);
         content.addView(available);
-        for (ModelSpec model : MODELS) content.addView(modelOption(model));
+        if (visibleModels.isEmpty()) {
+            TextView empty = label("No models match. Try a different search or filter.", 14, MUTED);
+            empty.setPadding(dp(12), dp(18), dp(12), dp(18));
+            content.addView(empty);
+        } else {
+            for (ModelSpec model : visibleModels) content.addView(modelOption(model));
+        }
 
         LinearLayout hero = card();
         TextView modelName = label(selectedModel().name, 18, INK);
@@ -974,7 +1110,7 @@ public class MainActivity extends Activity {
         modelAction.setOnClickListener(v -> onModelAction());
         content.addView(stateCard);
 
-        TextView note = label("Weights are downloaded only when you choose. Upstream model cards list Apache-2.0; check both the linked model card and the exact GGUF repository before publishing. This is not legal advice. The 1.7B option is intended for newer phones (6 GB+ RAM recommended).", 12, MUTED);
+        TextView note = label("RAM tiers are estimates, not guarantees. Larger models may be slow or need more free memory; the app checks available memory before generation. Weights download only after you choose. Review both the upstream model card and the GGUF publisher’s license before distribution.", 12, MUTED);
         note.setLineSpacing(dp(3), 1.0f);
         LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(-1, -2);
         np.topMargin = dp(13);
@@ -988,6 +1124,75 @@ public class MainActivity extends Activity {
         }
     }
 
+    private String modelFilterButtonLabel() {
+        if ("low".equals(modelFilter)) return "Filter · Low-end";
+        if ("mid".equals(modelFilter)) return "Filter · Mid-range";
+        if ("high".equals(modelFilter)) return "Filter · High-end";
+        if ("small".equals(modelFilter)) return "Filter · Small files";
+        if ("medium".equals(modelFilter)) return "Filter · Medium files";
+        if ("large".equals(modelFilter)) return "Filter · Large files";
+        if ("installed".equals(modelFilter)) return "Filter · Installed";
+        if ("not_installed".equals(modelFilter)) return "Filter · Not installed";
+        return "Filter · All models";
+    }
+
+    private void openModelFilterDialog() {
+        String[] keys = {"all", "low", "mid", "high", "small", "medium", "large", "installed", "not_installed"};
+        String[] labels = {"All models", "Low-end phones · up to 4 GB RAM", "Mid-range phones · about 6 GB RAM", "High-end phones · 8 GB+ RAM",
+                "Small downloads · up to 512 MiB", "Medium downloads · 512 MiB–2 GiB", "Large downloads · over 2 GiB", "Installed on this device", "Not installed"};
+        int checked = 0;
+        for (int i = 0; i < keys.length; i++) if (keys[i].equals(modelFilter)) checked = i;
+        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
+                .setTitle("Filter model list")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    modelFilter = keys[which];
+                    dialog.dismiss();
+                    showMain();
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    private void openModelSortDialog() {
+        String[] labels = {"Smallest download first", "Largest download first"};
+        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
+                .setTitle("Sort models by file size")
+                .setSingleChoiceItems(labels, modelSortDescending ? 1 : 0, (dialog, which) -> {
+                    modelSortDescending = which == 1;
+                    dialog.dismiss();
+                    showMain();
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    private ArrayList<ModelSpec> modelsMatchingPicker() {
+        ArrayList<ModelSpec> matches = new ArrayList<>();
+        String query = modelSearchQuery.trim().toLowerCase(Locale.US);
+        long mib = 1024L * 1024L;
+        long gib = 1024L * mib;
+        for (ModelSpec model : MODELS) {
+            String searchable = (model.id + " " + model.name + " " + model.details + " " + model.fileName + " " + model.attribution + " " + model.license + " " + model.sourceUrl + " " + model.quantizationUrl + " "
+                    + model.hardwareTier() + " " + model.recommendedRamGb() + " GB").toLowerCase(Locale.US);
+            if (!query.isEmpty() && !searchable.contains(query)) continue;
+            long size = model.expectedBytes;
+            boolean installed = validModelFile(model);
+            if ("low".equals(modelFilter) && model.recommendedRamGb() > 4) continue;
+            if ("mid".equals(modelFilter) && (model.recommendedRamGb() < 5 || model.recommendedRamGb() > 6)) continue;
+            if ("high".equals(modelFilter) && model.recommendedRamGb() < 8) continue;
+            if ("small".equals(modelFilter) && size > 512L * mib) continue;
+            if ("medium".equals(modelFilter) && (size <= 512L * mib || size > 2L * gib)) continue;
+            if ("large".equals(modelFilter) && size <= 2L * gib) continue;
+            if ("installed".equals(modelFilter) && !installed) continue;
+            if ("not_installed".equals(modelFilter) && installed) continue;
+            matches.add(model);
+        }
+        Collections.sort(matches, (left, right) -> modelSortDescending
+                ? Long.compare(right.expectedBytes, left.expectedBytes)
+                : Long.compare(left.expectedBytes, right.expectedBytes));
+        return matches;
+    }
+
     private LinearLayout modelOption(ModelSpec model) {
         boolean selected = model.id.equals(selectedModelId);
         LinearLayout option = card();
@@ -999,11 +1204,12 @@ public class MainActivity extends Activity {
         TextView name = label(model.name, 15, INK);
         name.setTypeface(null, Typeface.BOLD);
         text.addView(name);
-        TextView details = label(model.details + " · " + model.license, 12, MUTED);
+        TextView details = label(model.details + " · " + formatBytes(model.expectedBytes) + " · " + model.hardwareTier()
+                + " · ~" + model.recommendedRamGb() + " GB RAM · " + model.license, 12, MUTED);
         LinearLayout.LayoutParams detailParams = new LinearLayout.LayoutParams(-1, -2);
         detailParams.topMargin = dp(3);
         text.addView(details, detailParams);
-        TextView state = label(selected ? "Selected" : validModelFile(model) ? "On device · select" : "Select", 11, selected ? GREEN_DARK : MUTED);
+        TextView state = label(selected ? "Selected" : validModelFile(model) ? "Installed · select" : "Not installed · select", 11, selected ? GREEN_DARK : MUTED);
         state.setTypeface(null, Typeface.BOLD);
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1);
         option.addView(text, textParams);
@@ -1031,8 +1237,9 @@ public class MainActivity extends Activity {
                     .setPositiveButton("Cancel download", (d, w) -> cancelDownload()).show();
         } else {
             new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Download " + model.name + "?")
-                    .setMessage("This download is about " + formatBytes(model.expectedBytes) + ". Wi-Fi is recommended. Chat runs locally after the download.")
+                    .setMessage("This download is about " + formatBytes(model.expectedBytes) + ". Wi-Fi is recommended. Chat runs locally after download.\n\nModel terms: " + model.license + ". Review the upstream card and GGUF repository terms before use.")
                     .setNegativeButton("Not now", null)
+                    .setNeutralButton("Open model card", (d, w) -> openExternal(model.sourceUrl))
                     .setPositiveButton("Download", (d, w) -> startModelDownload()).show();
         }
     }
@@ -1466,16 +1673,15 @@ public class MainActivity extends Activity {
             toast("Download a local model before starting AI chat.");
             return;
         }
-        if ("titulm-mpt-1b".equals(selectedModelId) || "smollm2-17b".equals(selectedModelId) || contextSize() == 8192) {
-            ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
-            ActivityManager activityManager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
-            if (activityManager != null) activityManager.getMemoryInfo(memoryInfo);
-            long minimumFreeMemory = "smollm2-17b".equals(selectedModelId) ? 1_800L * 1024L * 1024L
-                    : "titulm-mpt-1b".equals(selectedModelId) ? 1_200L * 1024L * 1024L
-                    : 768L * 1024L * 1024L;
-            if (contextSize() == 8192) minimumFreeMemory += 512L * 1024L * 1024L;
-            if (activityManager != null && memoryInfo.availMem < minimumFreeMemory) {
-                toast("Low free memory for this model. Close other apps or choose a smaller model.");
+        ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
+        ActivityManager activityManager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        if (activityManager != null) {
+            activityManager.getMemoryInfo(memoryInfo);
+            long modelWorkingSet = Math.max(768L * 1024L * 1024L, selectedModel().expectedBytes * 3L / 2L);
+            long contextReserve = (long) contextSize() * 128L * 1024L;
+            long minimumFreeMemory = modelWorkingSet + contextReserve;
+            if (memoryInfo.availMem < minimumFreeMemory) {
+                toast("This model needs about " + formatBytes(minimumFreeMemory) + " free memory. Close other apps or choose a smaller model.");
                 return;
             }
         }
@@ -1814,7 +2020,8 @@ public class MainActivity extends Activity {
     }
 
     private String formatBytes(long bytes) {
-        if (bytes >= 1024L * 1024L) return String.format(Locale.US, "%.1f MiB", bytes / 1024.0 / 1024.0);
+        if (bytes >= 1024L * 1024L * 1024L) return String.format(Locale.US, "%.2f GiB", bytes / 1024.0 / 1024.0 / 1024.0);
+        if (bytes >= 1024L * 1024L) return String.format(Locale.US, "%.0f MiB", bytes / 1024.0 / 1024.0);
         if (bytes >= 1024L) return String.format(Locale.US, "%.0f KiB", bytes / 1024.0);
         return bytes + " B";
     }

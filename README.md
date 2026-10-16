@@ -8,6 +8,7 @@
 - Optional on-device voice dictation (Android 12+ with an installed offline speech model) and optional spoken replies through the system voice engine.
 - A visible **Stop** control while the model is generating, with a cancellable native inference loop.
 - On-device chat persistence, model download progress and validation, dark/light/system appearance, and a private go-bag checklist.
+- A searchable model picker with low-/mid-/high-end hardware tiers, download-size filters and sorting, and installed/not-installed filters.
 - Working inference controls: response length, context window, sampling temperature, custom persona/style instructions, restored-chat context, and optional background model unloading.
 - A full **Privacy Policy** and AI/safety notice available inside Settings. Voice input shows a clear first-use disclosure before microphone access.
 - Subtle screen transitions with a reduced-motion switch. GGUF chat templates are read from model metadata; the Android native build currently uses CPU backends only.
@@ -16,17 +17,11 @@
 
 ## Local model choices
 
-The picker defaults to **TituLM 1B MPT Q4_K_M**, a compact Bangla/English model. Other choices include Qwen3 0.6B, Qwen2.5 0.5B, SmolLM2 360M, and SmolLM2 1.7B. The 1.7B model is intended for newer phones; 6 GB or more total RAM is recommended, and the app checks available memory before starting it. There are no 7B/13B-class downloads.
+The fast default is **Qwen2.5 0.5B Instruct Q4_K_M** (about 379 MiB). The picker contains 16 on-demand models, from 360M/0.5B low-download choices through 4B models and a very-high-end 7B option: Qwen2.5, Qwen3, Gemma 3 and Gemma 4, Llama 3.2, SmolLM2, DeepSeek R1 Distill, Granite, Phi-4 mini, and Mistral. A model's displayed hardware tier is a rough file-size-based estimate—not a guarantee. The app checks available memory before generation; larger models can still be slow or unavailable on a phone.
 
-| Model | Quantization / approximate download | Upstream model and license | GGUF download repository |
-| --- | --- | --- | --- |
-| TituLM 1B MPT v2 | Q4_K_M · 870 MiB | [Hishab TituLM MPT 1B v2](https://huggingface.co/hishab/titulm-mpt-1b-v2.0) · Apache-2.0 | [mradermacher GGUF](https://huggingface.co/mradermacher/titulm-mpt-1b-v2.0-i1-GGUF) |
-| Qwen3 0.6B | Q4_K_M · 462 MiB | [Qwen3 0.6B](https://huggingface.co/Qwen/Qwen3-0.6B) · Apache-2.0 | [bartowski GGUF](https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF) |
-| Qwen2.5 0.5B Instruct | Q4_K_M · 379 MiB | [Qwen2.5 0.5B Instruct](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct) · Apache-2.0 | [bartowski GGUF](https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF) |
-| SmolLM2 360M Instruct | Q4_K_M · 258 MiB | [SmolLM2 360M Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct) · Apache-2.0 | [bartowski GGUF](https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF) |
-| SmolLM2 1.7B Instruct | Q4_K_M · 1.0 GiB | [SmolLM2 1.7B Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct) · Apache-2.0 | [Hugging Face Smol Models GGUF](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF) |
+Use the picker search and filters for low-/mid-/high-end hardware, small/medium/large downloads, installed/not-installed models, and ascending/descending file size. Exact model cards, GGUF publishers, pinned files, byte sizes, and license caveats are listed in [MODEL_CATALOG.md](MODEL_CATALOG.md). TituLM was removed from the selectable catalog; an upgrade also cancels its old download and removes its app-private cached model file when possible.
 
-The model cards list the upstream model terms. Quantized files are downloaded from the linked GGUF repositories, which may be maintained by a different publisher; review **both** links, the repository license, and any applicable terms before commercial distribution. TituLM MPT 1B is distinct from the TituLLM Llama 3.2 1B variant. This project does not redistribute the downloaded weights and does not make a legal-clearance guarantee. Model licenses do not establish rights to all training data, trademarks, or generated output.
+The app downloads weights only after the user chooses; it does not redistribute them. Review **both** the upstream model card and the GGUF publisher's terms before use or distribution. Some model cards use custom or gated terms; a public quantized file does not waive them. The Qwen2.5 3B metadata currently reports `other`, so the app does not claim an Apache-2.0 license for that model. This catalog is attribution and engineering documentation, not legal advice or a guarantee of commercial rights.
 
 Weights are kept in the app’s private Downloads directory and tracked with Android DownloadManager. The app checks available storage and validates the downloaded GGUF before enabling chat. Wi-Fi is recommended. The app does not send chat content to a cloud inference server.
 
@@ -40,8 +35,8 @@ Weights are kept in the app’s private Downloads directory and tracked with And
 
 ## Model attribution and third-party licenses
 
-- Qwen3 and Qwen2.5 model family/source licensing is published by [Qwen](https://huggingface.co/Qwen); the linked source model cards specify Apache-2.0.
-- SmolLM2 source model cards and the official 1.7B GGUF repository are published by [Hugging Face Smol Models](https://huggingface.co/HuggingFaceTB); the linked pages specify Apache-2.0.
+- Optional model sources and individual terms are tracked in [MODEL_CATALOG.md](MODEL_CATALOG.md); model card and GGUF links are also shown in the app's model picker.
+- Qwen3, Qwen2.5, SmolLM2, Granite, Phi, Mistral, Gemma, Meta Llama, and DeepSeek retain their respective upstream model licenses/terms. Review each source card; Gemma 3 and Meta Llama cards have special terms, and some are gated.
 - The mobile runtime uses the pinned [`llama.cpp`](https://github.com/ggml-org/llama.cpp) submodule; its project is MIT-licensed. Other dependencies retain their own licenses—review them before distribution.
 - Model weights are downloaded by user choice and are not included in the APK/AAB.
 

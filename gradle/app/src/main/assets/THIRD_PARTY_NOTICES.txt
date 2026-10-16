@@ -4,18 +4,28 @@ This project includes or may download the following third-party components. The 
 
 ## Runtime included in the app
 
-- **llama.cpp** (pinned git submodule): MIT License. Source and license: <https://github.com/ggml-org/llama.cpp>.
-- **AndroidSVG** (`com.caverock:androidsvg-aar:1.4`): Apache License 2.0. Source: <https://github.com/BigBadaboom/androidsvg>.
-- **AndroidX Core KTX** (`androidx.core:core-ktx:1.15.0`): Apache License 2.0. Source: <https://developer.android.com/jetpack/androidx>.
-- **AndroidX DataStore Preferences** (`androidx.datastore:datastore-preferences:1.1.1`): Apache License 2.0. Source: <https://developer.android.com/jetpack/androidx>.
-- **Kotlinx Coroutines Android** (`org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0`): Apache License 2.0. Source: <https://github.com/Kotlin/kotlinx.coroutines>.
+- **llama.cpp** (pinned git submodule): MIT License. Source and license: https://github.com/ggml-org/llama.cpp.
+- **AndroidSVG** (`com.caverock:androidsvg-aar:1.4`): Apache License 2.0. Source: https://github.com/BigBadaboom/androidsvg.
+- **AndroidX Core KTX** (`androidx.core:core-ktx:1.15.0`): Apache License 2.0. Source: https://developer.android.com/jetpack/androidx.
+- **AndroidX DataStore Preferences** (`androidx.datastore:datastore-preferences:1.1.1`): Apache License 2.0. Source: https://developer.android.com/jetpack/androidx.
+- **Kotlinx Coroutines Android** (`org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0`): Apache License 2.0. Source: https://github.com/Kotlin/kotlinx.coroutines.
 
 Review transitive dependencies and their current license/notice files from the resolved release build before publishing. This inventory is not a substitute for preserving required notices from each dependency.
 
 ## Optional model downloads (not included in the APK/AAB)
 
-- TituLM 1B MPT v2: upstream Hishab model card specifies Apache-2.0. The app links the upstream model card and the mradermacher GGUF repository used for the download.
-- Qwen3 0.6B and Qwen2.5 0.5B Instruct: upstream Qwen model cards specify Apache-2.0. The app links both the upstream card and the GGUF repository used for the download.
-- SmolLM2 360M and 1.7B Instruct: upstream Hugging Face Smol Models cards specify Apache-2.0. The app links both the upstream card and the GGUF repository used for the download.
+Weights are fetched only after the user chooses a download. Model links and quantized repository links are also shown in the in-app model picker. Model publishers and terms are independent of this app.
 
-Model weights are fetched only after a user chooses a download. Check the exact model card, quantization repository, required notices, dataset/trademark terms, and current terms before commercial use or redistribution. The app publisher makes no legal-clearance guarantee.
+- **Qwen2.5 0.5B Instruct** — upstream card: https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct (Apache-2.0); GGUF source: https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF.
+- **Qwen2.5 3B Instruct** — upstream card: https://huggingface.co/Qwen/Qwen2.5-3B-Instruct; current Hugging Face metadata reports `other`, so this app makes no Apache-2.0 claim; GGUF source: https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF.
+- **Qwen3 0.6B, 1.7B, and 4B** — upstream cards: https://huggingface.co/Qwen/Qwen3-0.6B, https://huggingface.co/Qwen/Qwen3-1.7B, https://huggingface.co/Qwen/Qwen3-4B (Apache-2.0); GGUF sources: https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF, https://huggingface.co/bartowski/Qwen_Qwen3-1.7B-GGUF, https://huggingface.co/Qwen/Qwen3-4B-GGUF.
+- **Gemma 3 1B and 4B Instruct** — Google model cards: https://huggingface.co/google/gemma-3-1b-it and https://huggingface.co/google/gemma-3-4b-it (Gemma terms); GGUF sources: https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF and https://huggingface.co/unsloth/gemma-3-4b-it-GGUF.
+- **Gemma 4 E2B Instruct** — Google model card: https://huggingface.co/google/gemma-4-E2B-it (current upstream metadata reports Apache-2.0; check the current official card); GGUF source: https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF.
+- **Llama 3.2 1B and 3B Instruct** — Meta model cards: https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct and https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct (Llama 3.2 Community License; upstream cards are gated); GGUF sources: https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF and https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF.
+- **SmolLM2 360M and 1.7B Instruct** — upstream cards: https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct and https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct (Apache-2.0); GGUF sources: https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF and https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF.
+- **DeepSeek R1 Distill Qwen 1.5B** — model card: https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B (MIT); GGUF source: https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF.
+- **Granite 3.1 2B Instruct** — IBM model card: https://huggingface.co/ibm-granite/granite-3.1-2b-instruct (Apache-2.0); GGUF source: https://huggingface.co/bartowski/granite-3.1-2b-instruct-GGUF.
+- **Phi-4 mini Instruct** — Microsoft model card: https://huggingface.co/microsoft/Phi-4-mini-instruct (MIT); GGUF source: https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF.
+- **Mistral 7B Instruct v0.3** — Mistral model card: https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3 (Apache-2.0); GGUF source: https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF.
+
+A public GGUF conversion does not waive the upstream model license. Review the model card, GGUF repository license, required notices, dataset/trademark terms, and current terms before commercial use or redistribution. The app downloads weights by user choice and does not redistribute them. This inventory is not legal advice or a legal-clearance guarantee.
