@@ -1,0 +1,31 @@
+# Apocalyptic AI
+
+A clean, privacy-first Android field guide for offline survival planning. The app is designed around a **LLaMA 3.2 1B GGUF** model and a compact, dependency-free native shell so the release APK stays small. The app requests no network permission: chat and the bundled guide are offline; the Donate button only hands the URL to the user’s browser when they choose it.
+
+## What is included
+
+- White, modern AI-chat interface with conversation cards, quick prompts, and a model picker.
+- Offline safety-first knowledge pack covering water, shelter, first aid, food safety, tools, and repairs.
+- Guardrail for weapon, explosive, and injury-trap requests; the app redirects to lawful, non-violent preparedness.
+- Donation link on the main screen: https://raihan.sites.bd
+- GitHub Actions workflow that builds both a debug APK and a signed-ready release AAB.
+
+## Local model note
+
+This repository does not redistribute Meta’s LLaMA weights. Add a legally obtained, compatible **LLaMA 3.2 1B GGUF** file on-device with **Load model**. The current release includes the compact UI and model-file selection contract plus an offline fallback guide. For production inference, connect a llama.cpp Android/JNI runner in `LocalModelEngine` (kept intentionally separate from the UI so the optional native runtime does not inflate the base APK).
+
+## Build locally
+
+```bash
+cd gradle
+./gradlew :app:assembleDebug
+./gradlew :app:bundleRelease
+```
+
+## GitHub Actions
+
+Every push to `main` builds `app-debug.apk` and `app-release.aab`. The AAB is uploaded as an artifact for Play Console publishing. To sign a production AAB, add `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, and `ANDROID_KEY_PASSWORD` repository secrets; otherwise the workflow creates an unsigned release bundle and clearly labels it.
+
+## Content and safety
+
+The bundled summaries are original, concise notes, not full books. The references point to public-domain or openly available preparedness sources. Always follow local law, official emergency guidance, and trained medical advice.
