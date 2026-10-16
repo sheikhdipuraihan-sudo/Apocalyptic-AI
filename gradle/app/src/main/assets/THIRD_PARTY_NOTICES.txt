@@ -14,6 +14,7 @@ Review transitive dependencies and their current license/notice files from the r
 
 ## Optional model downloads (not included in the APK/AAB)
 
+- TituLM 1B MPT v2: upstream Hishab model card specifies Apache-2.0. The app links the upstream model card and the mradermacher GGUF repository used for the download.
 - Qwen3 0.6B and Qwen2.5 0.5B Instruct: upstream Qwen model cards specify Apache-2.0. The app links both the upstream card and the GGUF repository used for the download.
 - SmolLM2 360M and 1.7B Instruct: upstream Hugging Face Smol Models cards specify Apache-2.0. The app links both the upstream card and the GGUF repository used for the download.
 

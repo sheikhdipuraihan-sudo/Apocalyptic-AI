@@ -83,7 +83,7 @@ object LocalModelBridge {
                     withContext(Dispatchers.Main) { callback.onToken("", true) }
                     return@launch
                 }
-                e.sendUserPrompt(prompt, 384).collect { token -> withContext(Dispatchers.Main) { callback.onToken(token, false) } }
+                e.sendUserPrompt(prompt, 160).collect { token -> withContext(Dispatchers.Main) { callback.onToken(token, false) } }
                 withContext(Dispatchers.Main) { callback.onToken("", true) }
             } catch (t: Throwable) { withContext(Dispatchers.Main) { callback.onError(t.message ?: "Local inference failed") } }
         }
