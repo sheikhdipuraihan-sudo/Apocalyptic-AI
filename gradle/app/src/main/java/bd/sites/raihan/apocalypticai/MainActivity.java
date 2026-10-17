@@ -622,11 +622,12 @@ public class MainActivity extends Activity {
         appRoot.addView(next, new LinearLayout.LayoutParams(-1, dp(54)));
         setContentView(appRoot);
         TextView privacyNote = note;
-        revealText(mark, "APOCALYPTIC AI", GREEN_DARK, 40, false, () ->
-                revealText(title, titles[page], INK, 30, false, () ->
-                        revealText(description, descriptions[page], MUTED, 40, true, () -> {
-                            if (privacyNote != null) revealText(privacyNote, privacyNote.getText().toString(), GREEN_DARK, 30, true, null);
-                        })));
+        // Keep the app brand static; animate only the onboarding copy.
+        mark.setText("APOCALYPTIC AI");
+        revealText(title, titles[page], INK, 30, false, () ->
+                revealText(description, descriptions[page], MUTED, 40, true, () -> {
+                    if (privacyNote != null) revealText(privacyNote, privacyNote.getText().toString(), GREEN_DARK, 30, true, null);
+                }));
     }
 
     private void revealText(TextView view, String text, int color, long delay, boolean byWord, Runnable onDone) {
