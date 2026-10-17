@@ -243,42 +243,63 @@ public class MainActivity extends Activity {
 
     private ModelSpec selectedModel() { return findModel(selectedModelId); }
 
-    private String modelDownloadKey(String modelId) { return "model_download_id_" + modelId; }
+    private String modelDownloadKey(String modelId) { return "download_id_" + modelId; }
+    private String modelDownloadStatusKey(String modelId) { return "download_status_" + modelId; }
+    private android.content.SharedPreferences downloadStatePreferences() {
+        return getSharedPreferences("apocalyptic_model_download_state", MODE_PRIVATE);
+    }
 
     private long savedDownloadId(String modelId) {
-        android.content.SharedPreferences prefs = getPreferences(MODE_PRIVATE);
-        String key = modelDownloadKey(modelId);
-        if (prefs.contains(key)) return prefs.getLong(key, -1L);
-        if ("qwen3-06b".equals(modelId) && prefs.contains(DOWNLOAD_KEY)) {
-            long legacyId = prefs.getLong(DOWNLOAD_KEY, -1L);
-            prefs.edit().putLong(key, legacyId).remove(DOWNLOAD_KEY).apply();
-            return legacyId;
+        return downloadStatePreferences().getLong(modelDownloadKey(modelId), -1L);
+    }
+
+    private void cleanupLegacySystemDownloads() {
+        android.content.SharedPreferences legacy = getPreferences(MODE_PRIVATE);
+        if (legacy.getBoolean("legacy_download_notifications_removed", false)) return;
+        stopService(new Intent(this, ModelDownloadNotificationService.class));
+        DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+        android.content.SharedPreferences.Editor editor = legacy.edit();
+        for (ModelSpec model : MODELS) {
+            String key = "model_download_id_" + model.id;
+            long oldId = legacy.getLong(key, -1L);
+            if (oldId > 0L && manager != null) manager.remove(oldId);
+            editor.remove(key);
         }
-        return -1L;
+        long oldDefaultId = legacy.getLong(DOWNLOAD_KEY, -1L);
+        if (oldDefaultId > 0L && manager != null) manager.remove(oldDefaultId);
+        editor.remove(DOWNLOAD_KEY).putBoolean("legacy_download_notifications_removed", true).commit();
+        android.app.NotificationManager notifications = (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (notifications != null) {
+            notifications.cancel(7310);
+            notifications.cancel(7311);
+        }
     }
 
     private void cleanupRetiredTituModel() {
         android.content.SharedPreferences prefs = getPreferences(MODE_PRIVATE);
         if (prefs.getBoolean(RETIRED_TITULM_CLEANUP_KEY, false)) return;
-        long retiredDownload = prefs.getLong(modelDownloadKey(RETIRED_TITULM_MODEL_ID), -1L);
+        long retiredDownload = prefs.getLong("model_download_id_" + RETIRED_TITULM_MODEL_ID, -1L);
         DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
         if (retiredDownload > 0L && manager != null) manager.remove(retiredDownload);
         File directory = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
         if (directory == null) directory = getFilesDir();
         File retiredFile = new File(directory, RETIRED_TITULM_FILE);
         boolean removed = !retiredFile.exists() || retiredFile.delete();
-        android.content.SharedPreferences.Editor editor = prefs.edit().remove(modelDownloadKey(RETIRED_TITULM_MODEL_ID));
+        android.content.SharedPreferences.Editor editor = prefs.edit().remove("model_download_id_" + RETIRED_TITULM_MODEL_ID);
         if (removed) editor.putBoolean(RETIRED_TITULM_CLEANUP_KEY, true);
         editor.apply();
     }
 
     private void saveDownloadId(String modelId, long id) {
-        getPreferences(MODE_PRIVATE).edit().putLong(modelDownloadKey(modelId), id).apply();
+        downloadStatePreferences().edit().putLong(modelDownloadKey(modelId), id).apply();
     }
 
     private void clearDownloadId(String modelId) {
-        getPreferences(MODE_PRIVATE).edit().remove(modelDownloadKey(modelId)).apply();
-        if ("qwen3-06b".equals(modelId)) getPreferences(MODE_PRIVATE).edit().remove(DOWNLOAD_KEY).apply();
+        downloadStatePreferences().edit().remove(modelDownloadKey(modelId))
+                .remove(modelDownloadStatusKey(modelId))
+                .remove("download_bytes_" + modelId)
+                .remove("download_total_" + modelId)
+                .remove("download_error_" + modelId).apply();
     }
 
     private File getModelFile(ModelSpec model) {
@@ -338,6 +359,7 @@ public class MainActivity extends Activity {
         selectedModelId = findModel(selectedModelId).id;
         getPreferences(MODE_PRIVATE).edit().putString(SELECTED_MODEL_KEY, selectedModelId).apply();
         cleanupRetiredTituModel();
+        cleanupLegacySystemDownloads();
         downloadId = savedDownloadId(selectedModelId);
         if (!getPreferences(MODE_PRIVATE).getBoolean("onboarding_complete", false)) showOnboarding(0);
         else showMain();
@@ -1454,37 +1476,42 @@ public class MainActivity extends Activity {
                 toast("Not enough free space. Free at least " + formatBytes(model.expectedBytes + 32L * 1024L * 1024L) + " and retry.");
                 return;
             }
-            DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-            if (manager == null) { toast("Android download service is unavailable."); return; }
-            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(model.url));
-            request.setTitle("Apocalyptic AI · " + model.name);
-            request.setDescription("Downloading " + model.name + " (" + formatBytes(model.expectedBytes) + ")");
-            request.setMimeType("application/octet-stream");
-            request.setAllowedOverMetered(true);
-            request.setAllowedOverRoaming(false);
-            request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, model.fileName);
-            downloadId = manager.enqueue(request);
+            downloadId = Math.max(System.currentTimeMillis(), 1L);
             saveDownloadId(model.id, downloadId);
-            Intent notificationService = new Intent(this, ModelDownloadNotificationService.class)
+            downloadStatePreferences().edit()
+                    .putString(modelDownloadStatusKey(model.id), "running")
+                    .putLong("download_bytes_" + model.id, 0L)
+                    .putLong("download_total_" + model.id, model.expectedBytes)
+                    .putString("download_error_" + model.id, "").apply();
+            Intent downloadIntent = new Intent(this, ModelDownloadNotificationService.class)
+                    .setAction(ModelDownloadNotificationService.ACTION_START)
                     .putExtra(ModelDownloadNotificationService.EXTRA_DOWNLOAD_ID, downloadId)
+                    .putExtra(ModelDownloadNotificationService.EXTRA_MODEL_ID, model.id)
                     .putExtra(ModelDownloadNotificationService.EXTRA_MODEL_NAME, model.name)
+                    .putExtra(ModelDownloadNotificationService.EXTRA_MODEL_URL, model.url)
+                    .putExtra(ModelDownloadNotificationService.EXTRA_FILE_NAME, model.fileName)
                     .putExtra(ModelDownloadNotificationService.EXTRA_EXPECTED_BYTES, model.expectedBytes);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(notificationService);
-            else startService(notificationService);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(downloadIntent);
+            else startService(downloadIntent);
             if (modelPageStatus != null) modelPageStatus.setText("Connecting to the model host…");
             if (modelAction != null) modelAction.setText("Cancel download");
             handler.removeCallbacks(downloadPoller);
             handler.post(downloadPoller);
-            toast("Model download started. Progress is shown here and in notifications.");
+            toast("Model download started. Progress appears in Apocalyptic AI notifications.");
         } catch (Exception e) {
+            clearDownloadId(selectedModelId);
+            downloadId = -1L;
             toast("Could not start download: " + safeMessage(e));
         }
     }
-
     private void refreshDownloadState() {
         if (modelPageStatus == null) return;
         ModelSpec model = selectedModel();
-        if (validModelFile() && (downloadId <= 0L || !isDownloadActive())) {
+        android.content.SharedPreferences state = downloadStatePreferences();
+        String status = state.getString(modelDownloadStatusKey(model.id), "");
+        long downloaded = state.getLong("download_bytes_" + model.id, 0L);
+        long total = state.getLong("download_total_" + model.id, model.expectedBytes);
+        if (validModelFile() && !"running".equals(status)) {
             modelPageStatus.setText("Ready · file verified as GGUF");
             modelProgress.setProgress(100);
             modelProgressText.setText(formatBytes(getModelFile().length()) + " saved on this device");
@@ -1492,66 +1519,43 @@ public class MainActivity extends Activity {
             if (downloadId > 0L) clearSelectedDownloadTracking();
             return;
         }
-        if (downloadId <= 0L) {
+        if (downloadId <= 0L || status.isEmpty() || "cancelled".equals(status)) {
             modelPageStatus.setText("Not downloaded · choose a model to begin local chat");
             modelProgress.setProgress(0);
             modelProgressText.setText("");
             modelAction.setText("Download model");
+            if (downloadId > 0L) clearSelectedDownloadTracking();
             return;
         }
-        DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-        if (manager == null) return;
-        Cursor cursor = null;
-        try {
-            cursor = manager.query(new DownloadManager.Query().setFilterById(downloadId));
-            if (cursor == null || !cursor.moveToFirst()) {
-                modelPageStatus.setText("Download not found. You can try again.");
-                modelProgress.setProgress(0);
-                modelProgressText.setText("Start a fresh download to retry.");
-                modelAction.setText("Retry download");
-                getModelFile().delete();
-                clearSelectedDownloadTracking();
-                return;
-            }
-            int status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
-            long downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
-            long total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
-            if (status == DownloadManager.STATUS_RUNNING || status == DownloadManager.STATUS_PENDING || status == DownloadManager.STATUS_PAUSED) {
-                int percent = total > 0L ? (int) Math.min(100L, downloaded * 100L / total) : 0;
-                modelPageStatus.setText(status == DownloadManager.STATUS_PAUSED ? "Paused by Android" : "Downloading…");
-                modelProgress.setProgress(percent);
-                modelProgressText.setText(total > 0L ? formatBytes(downloaded) + " of " + formatBytes(total) + " · " + percent + "%" : formatBytes(downloaded) + " downloaded");
-                modelAction.setText("Cancel download");
-            } else if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                if (validModelFile()) {
-                    modelPageStatus.setText("Ready · file verified as GGUF");
-                    modelProgress.setProgress(100);
-                    modelProgressText.setText(formatBytes(getModelFile().length()) + " saved on this device");
-                    modelAction.setText("Model ready");
-                } else {
-                    modelPageStatus.setText("Download finished, but the file is incomplete or not a GGUF model.");
-                    modelProgress.setProgress(0);
-                    modelProgressText.setText("Remove the partial file and retry.");
-                    modelAction.setText("Retry download");
-                    getModelFile().delete();
-                }
-                clearSelectedDownloadTracking();
-            } else if (status == DownloadManager.STATUS_FAILED) {
-                int reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON));
-                modelPageStatus.setText("Download failed · " + downloadFailure(reason));
-                modelProgress.setProgress(0);
-                modelProgressText.setText("Check the connection and free storage, then retry.");
-                modelAction.setText("Retry download");
-                getModelFile().delete();
-                clearSelectedDownloadTracking();
-            }
-        } catch (Exception e) {
-            modelPageStatus.setText("Could not read download status: " + safeMessage(e));
-        } finally {
-            if (cursor != null) cursor.close();
+        if ("running".equals(status)) {
+            int percent = total > 0L ? (int) Math.min(100L, downloaded * 100L / total) : 0;
+            modelPageStatus.setText("Downloading…");
+            modelProgress.setProgress(percent);
+            modelProgressText.setText(total > 0L
+                    ? formatBytes(downloaded) + " of " + formatBytes(total) + " · " + percent + "%"
+                    : formatBytes(downloaded) + " downloaded");
+            modelAction.setText("Cancel download");
+            return;
+        }
+        if ("complete".equals(status)) {
+            modelPageStatus.setText("Download finished, but the file is incomplete or not a GGUF model.");
+            modelProgress.setProgress(0);
+            modelProgressText.setText("Remove the partial file and retry.");
+            modelAction.setText("Retry download");
+            getModelFile().delete();
+            clearSelectedDownloadTracking();
+            return;
+        }
+        if ("failed".equals(status)) {
+            String reason = state.getString("download_error_" + model.id, "Download failed.");
+            modelPageStatus.setText("Download failed · " + reason);
+            modelProgress.setProgress(0);
+            modelProgressText.setText("Check the connection and free storage, then retry.");
+            modelAction.setText("Retry download");
+            getModelFile().delete();
+            clearSelectedDownloadTracking();
         }
     }
-
     private void clearSelectedDownloadTracking() {
         clearDownloadId(selectedModelId);
         downloadId = -1L;
@@ -1560,35 +1564,32 @@ public class MainActivity extends Activity {
 
     private boolean isDownloadActive() {
         if (downloadId <= 0L) return false;
-        DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-        if (manager == null) return false;
-        Cursor c = null;
-        try {
-            c = manager.query(new DownloadManager.Query().setFilterById(downloadId));
-            if (c != null && c.moveToFirst()) {
-                int status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
-                return status == DownloadManager.STATUS_PENDING || status == DownloadManager.STATUS_RUNNING || status == DownloadManager.STATUS_PAUSED;
-            }
-        } catch (Exception ignored) { }
-        finally { if (c != null) c.close(); }
-        return false;
+        return "running".equals(downloadStatePreferences().getString(modelDownloadStatusKey(selectedModelId), ""));
     }
 
     private void cancelDownload() {
-        stopService(new Intent(this, ModelDownloadNotificationService.class));
-        DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-        if (manager != null && downloadId > 0L) manager.remove(downloadId);
+        Intent cancel = new Intent(this, ModelDownloadNotificationService.class)
+                .setAction(ModelDownloadNotificationService.ACTION_CANCEL)
+                .putExtra(ModelDownloadNotificationService.EXTRA_MODEL_ID, selectedModelId)
+                .putExtra(ModelDownloadNotificationService.EXTRA_FILE_NAME, selectedModel().fileName)
+                .putExtra(ModelDownloadNotificationService.EXTRA_EXPECTED_BYTES, selectedModel().expectedBytes);
+        startService(cancel);
         getModelFile().delete();
+        new File(getModelFile().getParentFile(), selectedModel().fileName + ".part").delete();
         clearSelectedDownloadTracking();
         refreshDownloadState();
         toast("Download cancelled.");
     }
 
     private void removeModel() {
-        stopService(new Intent(this, ModelDownloadNotificationService.class));
-        DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-        if (manager != null && downloadId > 0L) manager.remove(downloadId);
+        Intent cancel = new Intent(this, ModelDownloadNotificationService.class)
+                .setAction(ModelDownloadNotificationService.ACTION_CANCEL)
+                .putExtra(ModelDownloadNotificationService.EXTRA_MODEL_ID, selectedModelId)
+                .putExtra(ModelDownloadNotificationService.EXTRA_FILE_NAME, selectedModel().fileName)
+                .putExtra(ModelDownloadNotificationService.EXTRA_EXPECTED_BYTES, selectedModel().expectedBytes);
+        startService(cancel);
         getModelFile().delete();
+        new File(getModelFile().getParentFile(), selectedModel().fileName + ".part").delete();
         clearSelectedDownloadTracking();
         refreshDownloadState();
         toast("Model removed from this device.");
