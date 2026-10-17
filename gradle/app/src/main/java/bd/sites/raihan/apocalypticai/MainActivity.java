@@ -2,7 +2,7 @@ package bd.sites.raihan.apocalypticai;
 
 import android.app.Activity;
 import android.app.ActivityManager;
-import android.app.AlertDialog;
+import android.app.Dialog;
 import android.app.DownloadManager;
 import android.Manifest;
 import android.content.Context;
@@ -25,8 +25,9 @@ import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -34,7 +35,6 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -66,6 +66,7 @@ public class MainActivity extends Activity {
     private static final String ACTIVE_SESSION_KEY = "active_chat_session_id";
     private static final String SPEAK_REPLIES_KEY = "speak_replies_enabled";
     private static final String VOICE_LANGUAGE_KEY = "voice_language";
+    private static final String VOICE_DISCLOSURE_MODE_KEY = "voice_disclosure_mode_v2";
     private static final String RESPONSE_LENGTH_KEY = "response_length_mode";
     private static final String RESTORED_CONTEXT_KEY = "restored_chat_context_enabled";
     private static final String CONTEXT_SIZE_KEY = "context_size";
@@ -195,6 +196,8 @@ public class MainActivity extends Activity {
     private TextView checklistCountLabel;
     private ProgressBar checklistProgress;
     private FrameLayout navigationOverlay;
+    private View navigationScrim;
+    private View navigationDrawer;
     private String activeTab = "chat";
     private String selectedModelId = DEFAULT_MODEL_ID;
     private String modelSearchQuery = "";
@@ -207,6 +210,8 @@ public class MainActivity extends Activity {
     private boolean isListening;
     private SpeechRecognizer speechRecognizer;
     private TextToSpeech textToSpeech;
+    private TextView transientNotice;
+    private final Runnable dismissTransientNotice = () -> removeTransientNotice();
     private boolean textToSpeechReady;
     private String pendingSpeech = "";
     private String voiceInputBaseText = "";
@@ -355,6 +360,8 @@ public class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         handler.removeCallbacks(downloadPoller);
+        handler.removeCallbacks(dismissTransientNotice);
+        removeTransientNotice();
         if (speechRecognizer != null) {
             speechRecognizer.destroy();
             speechRecognizer = null;
@@ -423,22 +430,33 @@ public class MainActivity extends Activity {
         return "dark".equals(m) ? "Dark" : "light".equals(m) ? "Light" : "System default";
     }
 
+    private int choiceIndex(String[] values, String selected) {
+        for (int i = 0; i < values.length; i++) if (values[i].equals(selected)) return i;
+        return 0;
+    }
+
     private void cycleTheme() {
-        String m = themeMode();
-        String next = "system".equals(m) ? "light" : "light".equals(m) ? "dark" : "system";
-        getPreferences(MODE_PRIVATE).edit().putString(THEME_KEY, next).apply();
-        applyTheme();
-        showMain();
+        String[] values = {"system", "light", "dark"};
+        showChoiceDialog("Appearance", "Choose the app theme.", new String[]{"Follow device", "Light", "Dark"},
+                choiceIndex(values, themeMode()), index -> {
+                    getPreferences(MODE_PRIVATE).edit().putString(THEME_KEY, values[index]).apply();
+                    applyTheme();
+                    showMain();
+                });
     }
 
     private int contextSize() { return getPreferences(MODE_PRIVATE).getInt(CONTEXT_SIZE_KEY, 4096); }
     private String contextSizeLabel() { return String.format(Locale.US, "%,d requested tokens · model may cap it", contextSize()); }
     private void cycleContextSize() {
-        int size = contextSize();
-        int next = size == 2048 ? 4096 : size == 4096 ? 8192 : 2048;
-        getPreferences(MODE_PRIVATE).edit().putInt(CONTEXT_SIZE_KEY, next).apply();
-        toast("Context window set to " + String.format(Locale.US, "%,d", next) + ". It applies when the model next loads.");
-        showMain();
+        int current = contextSize();
+        int selected = current == 2048 ? 0 : current == 4096 ? 1 : 2;
+        showChoiceDialog("Context window", "Larger windows use more RAM. The model may enforce a lower limit.",
+                new String[]{"2,048 tokens · lightest", "4,096 tokens · balanced", "8,192 tokens · highest memory"}, selected, index -> {
+                    int next = index == 0 ? 2048 : index == 1 ? 4096 : 8192;
+                    getPreferences(MODE_PRIVATE).edit().putInt(CONTEXT_SIZE_KEY, next).apply();
+                    toast("Context window: " + String.format(Locale.US, "%,d", next) + ". It applies when the model next loads.");
+                    showMain();
+                });
     }
 
     private String temperatureMode() { return getPreferences(MODE_PRIVATE).getString(TEMPERATURE_KEY, "balanced"); }
@@ -452,28 +470,38 @@ public class MainActivity extends Activity {
         return name + " · " + String.format(Locale.US, "%.1f", temperatureValue());
     }
     private void cycleTemperature() {
-        String mode = temperatureMode();
-        String next = "precise".equals(mode) ? "balanced" : "balanced".equals(mode) ? "creative" : "precise";
-        getPreferences(MODE_PRIVATE).edit().putString(TEMPERATURE_KEY, next).apply();
-        toast("Sampling: " + ("precise".equals(next) ? "Precise" : "balanced".equals(next) ? "Balanced" : "Creative"));
-        showMain();
+        String[] values = {"precise", "balanced", "creative"};
+        showChoiceDialog("Temperature", "Lower values are more focused; higher values vary more.",
+                new String[]{"Precise · 0.2", "Balanced · 0.3", "Creative · 0.8"}, choiceIndex(values, temperatureMode()), index -> {
+                    getPreferences(MODE_PRIVATE).edit().putString(TEMPERATURE_KEY, values[index]).apply();
+                    toast("Sampling: " + values[index]);
+                    showMain();
+                });
     }
 
     private boolean animationsEnabled() { return getPreferences(MODE_PRIVATE).getBoolean(ANIMATIONS_KEY, true); }
     private void toggleAnimations() {
-        boolean enabled = !animationsEnabled();
-        getPreferences(MODE_PRIVATE).edit().putBoolean(ANIMATIONS_KEY, enabled).apply();
-        toast(enabled ? "Subtle screen animations enabled." : "Animations reduced.");
-        showMain();
+        int selected = animationsEnabled() ? 0 : 1;
+        showChoiceDialog("Motion", "This setting controls page and sidebar transitions.", new String[]{"On · subtle motion", "Reduced · no transitions"}, selected, index -> {
+            boolean enabled = index == 0;
+            getPreferences(MODE_PRIVATE).edit().putBoolean(ANIMATIONS_KEY, enabled).apply();
+            toast(enabled ? "Subtle screen animations enabled." : "Animations reduced.");
+            showMain();
+        });
     }
     private void toggleAutoUnload() {
-        boolean enabled = !getPreferences(MODE_PRIVATE).getBoolean(AUTO_UNLOAD_KEY, false);
-        getPreferences(MODE_PRIVATE).edit().putBoolean(AUTO_UNLOAD_KEY, enabled).apply();
-        toast(enabled ? "The model will unload when the app leaves the screen and reload for your next chat." : "Model stays loaded while the app is in the background.");
-        showMain();
+        int selected = getPreferences(MODE_PRIVATE).getBoolean(AUTO_UNLOAD_KEY, false) ? 0 : 1;
+        showChoiceDialog("Auto-unload model", "Free model memory while Apocalyptic AI is in the background, then load again for the next chat.", new String[]{"On · unload in background", "Off · keep loaded"}, selected, index -> {
+            boolean enabled = index == 0;
+            getPreferences(MODE_PRIVATE).edit().putBoolean(AUTO_UNLOAD_KEY, enabled).apply();
+            toast(enabled ? "The model will unload in the background." : "The model will stay loaded in the background.");
+            showMain();
+        });
     }
 
     private void showAssistantInstructions() {
+        Dialog dialog = new Dialog(this);
+        LinearLayout shell = brandedDialogShell("Assistant persona & instructions", "Set a name, role, or tone. Core safety rules remain in effect.");
         EditText editor = new EditText(this);
         editor.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
                 | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
@@ -481,24 +509,41 @@ public class MainActivity extends Activity {
         editor.setMaxLines(8);
         editor.setGravity(Gravity.TOP | Gravity.START);
         editor.setPadding(dp(12), dp(10), dp(12), dp(10));
+        editor.setTextColor(INK);
+        editor.setHintTextColor(MUTED);
+        editor.setBackground(round(PAPER, 12));
         editor.setHint("Example: Use short bullet points; write in a calm, practical tone.");
         editor.setText(getPreferences(MODE_PRIVATE).getString(CUSTOM_INSTRUCTIONS_KEY, ""));
-        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("Assistant persona & instructions")
-                .setMessage("Add a name, role, tone, or response preference. The app's core safety rules remain in effect.")
-                .setView(editor)
-                .setNeutralButton("Reset", (dialog, which) -> {
-                    getPreferences(MODE_PRIVATE).edit().remove(CUSTOM_INSTRUCTIONS_KEY).apply();
-                    toast("Assistant instructions reset.");
-                    showMain();
-                })
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Save", (dialog, which) -> {
-                    getPreferences(MODE_PRIVATE).edit().putString(CUSTOM_INSTRUCTIONS_KEY, editor.getText().toString().trim()).apply();
-                    toast("Instructions saved; applied to your next reply.");
-                    showMain();
-                })
-                .show();
+        LinearLayout.LayoutParams editorParams = new LinearLayout.LayoutParams(-1, dp(150));
+        editorParams.topMargin = dp(14);
+        shell.addView(editor, editorParams);
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        TextView reset = action("Reset", false);
+        TextView cancel = action("Cancel", false);
+        TextView save = action("Save", true);
+        reset.setOnClickListener(v -> {
+            getPreferences(MODE_PRIVATE).edit().remove(CUSTOM_INSTRUCTIONS_KEY).apply();
+            dialog.dismiss(); toast("Assistant instructions reset."); showMain();
+        });
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        save.setOnClickListener(v -> {
+            String value = editor.getText().toString().trim();
+            if (value.length() > 1200) { toast("Keep assistant instructions under 1,200 characters."); return; }
+            getPreferences(MODE_PRIVATE).edit().putString(CUSTOM_INSTRUCTIONS_KEY, value).apply();
+            dialog.dismiss(); toast("Instructions saved; applied to your next reply."); showMain();
+        });
+        LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(0, dp(46), 1);
+        buttons.addView(reset, resetParams);
+        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(0, dp(46), 1);
+        cancelParams.leftMargin = dp(6); buttons.addView(cancel, cancelParams);
+        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(0, dp(46), 1);
+        saveParams.leftMargin = dp(6); buttons.addView(save, saveParams);
+        LinearLayout.LayoutParams buttonsParams = new LinearLayout.LayoutParams(-1, -2);
+        buttonsParams.topMargin = dp(12); shell.addView(buttons, buttonsParams);
+        dialog.setContentView(shell);
+        dialog.setCancelable(true);
+        showBrandedDialog(dialog);
     }
 
     private void showOnboarding(int page) {
@@ -573,11 +618,15 @@ public class MainActivity extends Activity {
     }
 
     private void showMain() {
+        if (navigationScrim != null) navigationScrim.animate().cancel();
+        if (navigationDrawer != null) navigationDrawer.animate().cancel();
         appRoot = new LinearLayout(this);
         appRoot.setOrientation(LinearLayout.VERTICAL);
         appRoot.setBackgroundColor(PAPER);
         appRoot.setPadding(0, 0, 0, 0);
         navigationOverlay = null;
+        navigationScrim = null;
+        navigationDrawer = null;
 
         LinearLayout toolbar = new LinearLayout(this);
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
@@ -625,11 +674,14 @@ public class MainActivity extends Activity {
         if (!wideLayout) {
             navigationOverlay = new FrameLayout(this);
             navigationOverlay.setVisibility(View.GONE);
-            View scrim = new View(this);
-            scrim.setBackgroundColor(Color.argb(145, 0, 0, 0));
-            scrim.setOnClickListener(v -> navigationOverlay.setVisibility(View.GONE));
-            navigationOverlay.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
+            navigationScrim = new View(this);
+            navigationScrim.setAlpha(0f);
+            navigationScrim.setBackgroundColor(Color.argb(145, 0, 0, 0));
+            navigationScrim.setOnClickListener(v -> closeNavigationDrawer());
+            navigationOverlay.addView(navigationScrim, new FrameLayout.LayoutParams(-1, -1));
             LinearLayout drawer = buildSidebar();
+            navigationDrawer = drawer;
+            drawer.setTranslationX(-dp(300));
             FrameLayout.LayoutParams drawerParams = new FrameLayout.LayoutParams(dp(300), -1, Gravity.START);
             navigationOverlay.addView(drawer, drawerParams);
             screen.addView(navigationOverlay, new FrameLayout.LayoutParams(-1, -1));
@@ -640,7 +692,46 @@ public class MainActivity extends Activity {
 
     private void toggleNavigationDrawer() {
         if (navigationOverlay == null) return;
-        navigationOverlay.setVisibility(navigationOverlay.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        if (navigationOverlay.getVisibility() == View.VISIBLE) closeNavigationDrawer();
+        else openNavigationDrawer();
+    }
+
+    private void openNavigationDrawer() {
+        if (navigationOverlay == null || navigationDrawer == null || navigationScrim == null) return;
+        navigationDrawer.animate().cancel();
+        navigationScrim.animate().cancel();
+        navigationOverlay.setVisibility(View.VISIBLE);
+        if (!animationsEnabled()) {
+            navigationDrawer.setTranslationX(0f);
+            navigationScrim.setAlpha(1f);
+            return;
+        }
+        navigationDrawer.setTranslationX(-dp(300));
+        navigationScrim.setAlpha(0f);
+        navigationScrim.animate().alpha(1f).setDuration(180).start();
+        navigationDrawer.animate().translationX(0f).setDuration(220)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+    }
+
+    private void closeNavigationDrawer() {
+        if (navigationOverlay == null || navigationDrawer == null || navigationScrim == null) return;
+        navigationDrawer.animate().cancel();
+        navigationScrim.animate().cancel();
+        if (!animationsEnabled()) {
+            navigationDrawer.setTranslationX(-dp(300));
+            navigationScrim.setAlpha(0f);
+            navigationOverlay.setVisibility(View.GONE);
+            return;
+        }
+        View closingDrawer = navigationDrawer;
+        FrameLayout closingOverlay = navigationOverlay;
+        navigationScrim.animate().alpha(0f).setDuration(150).start();
+        navigationDrawer.animate().translationX(-dp(300)).setDuration(180)
+                .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                .withEndAction(() -> {
+                    if (navigationOverlay == closingOverlay && navigationDrawer == closingDrawer)
+                        closingOverlay.setVisibility(View.GONE);
+                }).start();
     }
 
     private LinearLayout buildSidebar() {
@@ -691,7 +782,7 @@ public class MainActivity extends Activity {
                 rp.bottomMargin = dp(2);
                 items.addView(row, rp);
                 row.setOnClickListener(v -> {
-                    if (navigationOverlay != null) navigationOverlay.setVisibility(View.GONE);
+                    closeNavigationDrawer();
                     loadHistoryConversation(entry);
                 });
                 row.setOnLongClickListener(v -> { confirmDeleteHistoryConversation(entry); return true; });
@@ -732,7 +823,7 @@ public class MainActivity extends Activity {
         sidebar.addView(row, rowParams);
         row.setClickable(true);
         row.setOnClickListener(v -> {
-            if (navigationOverlay != null) navigationOverlay.setVisibility(View.GONE);
+            closeNavigationDrawer();
             if ("donate".equals(id)) openDonate();
             else if ("new".equals(id)) newChat();
             else {
@@ -931,16 +1022,30 @@ public class MainActivity extends Activity {
         checklist.setPadding(0, dp(3), 0, dp(10));
         for (int i = 0; i < KIT_ITEMS.length; i++) {
             final int itemIndex = i;
-            CheckBox item = new CheckBox(this);
-            item.setText(KIT_ITEMS[i]);
-            item.setTextColor(INK);
-            item.setTextSize(14);
-            item.setButtonTintList(android.content.res.ColorStateList.valueOf(GREEN));
-            item.setPadding(dp(12), dp(6), dp(12), dp(6));
+            final boolean[] checked = {getPreferences(MODE_PRIVATE).getBoolean("kit_checked_" + i, false)};
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.HORIZONTAL);
+            item.setGravity(Gravity.CENTER_VERTICAL);
+            item.setPadding(dp(12), dp(10), dp(12), dp(10));
+            item.setMinimumHeight(dp(52));
             item.setBackground(round(CARD, 12));
-            item.setChecked(getPreferences(MODE_PRIVATE).getBoolean("kit_checked_" + i, false));
-            item.setOnCheckedChangeListener((button, checked) -> {
-                getPreferences(MODE_PRIVATE).edit().putBoolean("kit_checked_" + itemIndex, checked).apply();
+            item.setClickable(true);
+            item.setFocusable(true);
+            TextView checkmark = label(checked[0] ? "✓" : "", 15, Color.WHITE);
+            checkmark.setGravity(Gravity.CENTER);
+            checkmark.setBackground(round(checked[0] ? GREEN : BORDER, 7));
+            item.addView(checkmark, new LinearLayout.LayoutParams(dp(24), dp(24)));
+            TextView itemText = label(KIT_ITEMS[i], 14, INK);
+            LinearLayout.LayoutParams itemTextParams = new LinearLayout.LayoutParams(0, -2, 1);
+            itemTextParams.leftMargin = dp(12);
+            item.addView(itemText, itemTextParams);
+            item.setContentDescription((checked[0] ? "Packed: " : "Not packed: ") + KIT_ITEMS[i]);
+            item.setOnClickListener(v -> {
+                checked[0] = !checked[0];
+                checkmark.setText(checked[0] ? "✓" : "");
+                checkmark.setBackground(round(checked[0] ? GREEN : BORDER, 7));
+                item.setContentDescription((checked[0] ? "Packed: " : "Not packed: ") + KIT_ITEMS[itemIndex]);
+                getPreferences(MODE_PRIVATE).edit().putBoolean("kit_checked_" + itemIndex, checked[0]).apply();
                 updateChecklistProgress();
             });
             LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(-1, -2);
@@ -955,16 +1060,13 @@ public class MainActivity extends Activity {
         resetParams.topMargin = dp(6);
         resetParams.bottomMargin = dp(8);
         pageBody.addView(reset, resetParams);
-        reset.setOnClickListener(v -> new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("Reset your checklist?")
-                .setMessage("All check marks will be cleared on this device.")
-                .setNegativeButton("Keep it", null)
-                .setPositiveButton("Reset", (d, w) -> {
+        reset.setOnClickListener(v -> showBrandedConfirmation("Reset your checklist?",
+                "All check marks will be cleared on this device.", "Reset", () -> {
                     android.content.SharedPreferences.Editor editor = getPreferences(MODE_PRIVATE).edit();
                     for (int i = 0; i < KIT_ITEMS.length; i++) editor.remove("kit_checked_" + i);
                     editor.apply();
                     renderPage();
-                }).show());
+                }));
     }
 
     private int checklistCompletedCount() {
@@ -1142,28 +1244,19 @@ public class MainActivity extends Activity {
                 "Small downloads · up to 512 MiB", "Medium downloads · 512 MiB–2 GiB", "Large downloads · over 2 GiB", "Installed on this device", "Not installed"};
         int checked = 0;
         for (int i = 0; i < keys.length; i++) if (keys[i].equals(modelFilter)) checked = i;
-        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("Filter model list")
-                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
-                    modelFilter = keys[which];
-                    dialog.dismiss();
-                    showMain();
-                })
-                .setNegativeButton("Close", null)
-                .show();
+        showChoiceDialog("Filter model list", "Narrow models by hardware tier, file size, or download status.", labels, checked, which -> {
+            modelFilter = keys[which];
+            showMain();
+        });
     }
 
     private void openModelSortDialog() {
         String[] labels = {"Smallest download first", "Largest download first"};
-        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("Sort models by file size")
-                .setSingleChoiceItems(labels, modelSortDescending ? 1 : 0, (dialog, which) -> {
+        showChoiceDialog("Sort models by file size", "Choose the file-size order for the catalog.", labels,
+                modelSortDescending ? 1 : 0, which -> {
                     modelSortDescending = which == 1;
-                    dialog.dismiss();
                     showMain();
-                })
-                .setNegativeButton("Close", null)
-                .show();
+                });
     }
 
     private ArrayList<ModelSpec> modelsMatchingPicker() {
@@ -1226,21 +1319,15 @@ public class MainActivity extends Activity {
     private void onModelAction() {
         ModelSpec model = selectedModel();
         if (selectedModelReady()) {
-            new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Model is ready")
-                    .setMessage(model.name + " is saved on this device. Chat responses now run locally.")
-                    .setPositiveButton("Open chat", (d, w) -> { activeTab = "chat"; showMain(); })
-                    .setNegativeButton("Remove model", (d, w) -> removeModel()).show();
+            showBrandedConfirmation("Model is ready", model.name + " is saved on this device. Chat responses now run locally.",
+                    "Open chat", () -> { activeTab = "chat"; showMain(); });
         } else if (downloadId > 0L && isDownloadActive()) {
-            new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Cancel model download?")
-                    .setMessage("The partial model file will be removed.")
-                    .setNegativeButton("Keep downloading", null)
-                    .setPositiveButton("Cancel download", (d, w) -> cancelDownload()).show();
+            showBrandedConfirmation("Cancel model download?", "The partial model file will be removed.",
+                    "Cancel download", () -> cancelDownload());
         } else {
-            new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Download " + model.name + "?")
-                    .setMessage("This download is about " + formatBytes(model.expectedBytes) + ". Wi-Fi is recommended. Chat runs locally after download.\n\nModel terms: " + model.license + ". Review the upstream card and GGUF repository terms before use.")
-                    .setNegativeButton("Not now", null)
-                    .setNeutralButton("Open model card", (d, w) -> openExternal(model.sourceUrl))
-                    .setPositiveButton("Download", (d, w) -> startModelDownload()).show();
+            showBrandedConfirmation("Download " + model.name + "?",
+                    "This download is about " + formatBytes(model.expectedBytes) + ". Wi-Fi is recommended. Chat runs locally after download.\n\nModel terms: " + model.license + ". Review the upstream card and GGUF repository terms on the model page before use.",
+                    "Download", () -> startModelDownload());
         }
     }
 
@@ -1394,25 +1481,28 @@ public class MainActivity extends Activity {
         return "Not downloaded · choose a model to begin local chat";
     }
 
+    private boolean onDeviceSpeechAvailable() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false;
+        try { return SpeechRecognizer.isOnDeviceRecognitionAvailable(this); }
+        catch (Exception ignored) { return false; }
+    }
+
     private void requestVoiceInput() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            toast("Private voice input requires Android 12 or newer with an on-device speech model.");
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            toast("Voice input is unavailable. Install or enable a speech recognition service on this device.");
             return;
         }
-        if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-            toast("No on-device speech model is installed. Add an offline speech language in your device settings.");
-            return;
-        }
-        if (!getPreferences(MODE_PRIVATE).getBoolean("voice_disclosure_accepted", false)) {
-            new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
-                    .setTitle("Voice input privacy")
-                    .setMessage("If you continue, microphone audio will be captured only for dictation and passed to Android's on-device speech recognizer to produce draft text. The app does not upload the recording to a cloud AI. Recognition depends on the speech service/model installed on your device.")
-                    .setNegativeButton("Cancel", null)
-                    .setPositiveButton("Continue", (dialog, which) -> {
-                        getPreferences(MODE_PRIVATE).edit().putBoolean("voice_disclosure_accepted", true).apply();
-                        requestMicrophonePermissionOrStart();
-                    })
-                    .show();
+        boolean onDevice = onDeviceSpeechAvailable();
+        String mode = onDevice ? "on_device" : "system_service";
+        if (!mode.equals(getPreferences(MODE_PRIVATE).getString(VOICE_DISCLOSURE_MODE_KEY, ""))) {
+            String disclosure = onDevice
+                    ? "Android reports that on-device recognition is available. Audio is passed to that system recognizer to create draft text; Apocalyptic AI does not upload recordings to its own server. Availability and handling are controlled by Android and the installed speech component."
+                    : "This device does not provide on-device recognition to the app. Dictation will use the installed Android speech service, which may send audio to its provider or require internet; its privacy practices apply. Apocalyptic AI does not upload audio to its own server. Continue only if you are comfortable with the installed provider handling the recording. Tap Mic again to use this service."
+                    ;
+            showBrandedConfirmation("Voice input & privacy", disclosure, "Continue", () -> {
+                getPreferences(MODE_PRIVATE).edit().putString(VOICE_DISCLOSURE_MODE_KEY, mode).apply();
+                requestMicrophonePermissionOrStart();
+            });
             return;
         }
         requestMicrophonePermissionOrStart();
@@ -1428,13 +1518,16 @@ public class MainActivity extends Activity {
 
     private void startVoiceInput() {
         if (isGenerating || isListening) return;
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-            toast("On-device speech recognition is unavailable on this device.");
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            toast("No speech recognition service is available on this device.");
             return;
         }
+        boolean onDevice = onDeviceSpeechAvailable();
         try {
             voiceInputBaseText = composer == null ? "" : composer.getText().toString().trim();
-            speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this);
+            speechRecognizer = onDevice
+                    ? SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+                    : SpeechRecognizer.createSpeechRecognizer(this);
             speechRecognizer.setRecognitionListener(new RecognitionListener() {
                 @Override public void onReadyForSpeech(Bundle params) { }
                 @Override public void onBeginningOfSpeech() { }
@@ -1445,7 +1538,7 @@ public class MainActivity extends Activity {
                     boolean wasListening = isListening;
                     finishVoiceInput();
                     if (!wasListening) return;
-                    toast(error == SpeechRecognizer.ERROR_NO_MATCH ? "No speech was recognized. Try again." : "Voice input stopped. Try again.");
+                    toast(error == SpeechRecognizer.ERROR_NO_MATCH ? "No speech was recognized. Try again." : "The speech service could not complete dictation. Try again.");
                 }
                 @Override public void onResults(Bundle results) {
                     ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
@@ -1472,10 +1565,11 @@ public class MainActivity extends Activity {
                 microphoneButton.setContentDescription("Stop voice input");
             }
             speechRecognizer.startListening(intent);
-            toast("Listening on this device… tap Stop when finished.");
+            toast(onDevice ? "Listening with on-device recognition… tap Stop when finished."
+                    : "Listening with the installed Android speech service… tap Stop when finished.");
         } catch (Exception e) {
             finishVoiceInput();
-            toast("Could not start on-device voice input.");
+            toast("Could not start voice input. Check that your speech service is enabled.");
         }
     }
 
@@ -1505,16 +1599,20 @@ public class MainActivity extends Activity {
         }
         if (microphoneButton != null) {
             microphoneButton.setText("Mic");
-            microphoneButton.setContentDescription("Start on-device voice input");
+            microphoneButton.setContentDescription("Start voice input");
         }
     }
 
     private void toggleSpokenReplies() {
-        boolean enabled = !getPreferences(MODE_PRIVATE).getBoolean(SPEAK_REPLIES_KEY, false);
-        getPreferences(MODE_PRIVATE).edit().putBoolean(SPEAK_REPLIES_KEY, enabled).apply();
-        if (!enabled && textToSpeech != null) textToSpeech.stop();
-        toast(enabled ? "Spoken replies enabled. Uses the system voice installed on your phone." : "Spoken replies disabled.");
-        showMain();
+        boolean currentlyEnabled = getPreferences(MODE_PRIVATE).getBoolean(SPEAK_REPLIES_KEY, false);
+        showChoiceDialog("Spoken replies", "Choose whether completed assistant answers are read aloud using the voice installed on the phone.",
+                new String[]{"Off", "On · use installed voice"}, currentlyEnabled ? 1 : 0, index -> {
+                    boolean enabled = index == 1;
+                    getPreferences(MODE_PRIVATE).edit().putBoolean(SPEAK_REPLIES_KEY, enabled).apply();
+                    if (!enabled && textToSpeech != null) textToSpeech.stop();
+                    toast(enabled ? "Spoken replies enabled." : "Spoken replies disabled.");
+                    showMain();
+                });
     }
 
     private String voiceLanguageTag() {
@@ -1528,12 +1626,16 @@ public class MainActivity extends Activity {
     }
 
     private void cycleVoiceLanguage() {
-        String setting = getPreferences(MODE_PRIVATE).getString(VOICE_LANGUAGE_KEY, "system");
-        String next = "system".equals(setting) ? "bn-BD" : "bn-BD".equals(setting) ? "en-US" : "system";
-        getPreferences(MODE_PRIVATE).edit().putString(VOICE_LANGUAGE_KEY, next).apply();
-        if (textToSpeech != null) textToSpeech.setLanguage(Locale.forLanguageTag("system".equals(next) ? Locale.getDefault().toLanguageTag() : next));
-        toast("Voice language: " + ("bn-BD".equals(next) ? "Bangla" : "en-US".equals(next) ? "English" : "system language"));
-        showMain();
+        String[] values = {"system", "bn-BD", "en-US"};
+        showChoiceDialog("Voice language", "This selection applies to dictation and spoken replies when supported by installed speech engines.",
+                new String[]{"System language", "Bangla · Bangladesh", "English · United States"},
+                choiceIndex(values, getPreferences(MODE_PRIVATE).getString(VOICE_LANGUAGE_KEY, "system")), index -> {
+                    String next = values[index];
+                    getPreferences(MODE_PRIVATE).edit().putString(VOICE_LANGUAGE_KEY, next).apply();
+                    if (textToSpeech != null) textToSpeech.setLanguage(Locale.forLanguageTag("system".equals(next) ? Locale.getDefault().toLanguageTag() : next));
+                    toast("Voice language: " + voiceLanguageLabel());
+                    showMain();
+                });
     }
 
     private void speakAssistantReply(String text) {
@@ -1612,12 +1714,16 @@ public class MainActivity extends Activity {
 
     private View settingRow(String title, String subtitle, View.OnClickListener listener) {
         LinearLayout row = card();
+        row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout text = new LinearLayout(this); text.setOrientation(LinearLayout.VERTICAL);
         TextView t = label(title, 15, INK); t.setTypeface(null, Typeface.BOLD); text.addView(t);
         TextView s = label(subtitle, 12, MUTED); LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2); sp.topMargin = dp(4); text.addView(s, sp);
         row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
         TextView arrow = label("›", 22, MUTED); row.addView(arrow);
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setContentDescription(title + ". " + subtitle + ". Open setting.");
         row.setOnClickListener(listener);
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2); rp.topMargin = dp(8); row.setLayoutParams(rp);
         return row;
@@ -1649,18 +1755,26 @@ public class MainActivity extends Activity {
     }
 
     private void cycleResponseLength() {
-        String mode = responseLengthMode();
-        String next = "fast".equals(mode) ? "balanced" : "balanced".equals(mode) ? "detailed" : "fast";
-        getPreferences(MODE_PRIVATE).edit().putString(RESPONSE_LENGTH_KEY, next).apply();
-        toast("Response length: " + ("fast".equals(next) ? "Fast" : "balanced".equals(next) ? "Balanced" : "Detailed"));
-        showMain();
+        String[] values = {"fast", "balanced", "detailed"};
+        showChoiceDialog("Response length", "Choose a shorter/faster reply or allow more room for detail.",
+                new String[]{"Fast · up to 128 tokens", "Balanced · up to 160 tokens", "Detailed · up to 320 tokens"},
+                choiceIndex(values, responseLengthMode()), index -> {
+                    String next = values[index];
+                    getPreferences(MODE_PRIVATE).edit().putString(RESPONSE_LENGTH_KEY, next).apply();
+                    toast("Response length: " + next);
+                    showMain();
+                });
     }
 
     private void toggleRestoredContext() {
-        boolean enabled = !getPreferences(MODE_PRIVATE).getBoolean(RESTORED_CONTEXT_KEY, true);
-        getPreferences(MODE_PRIVATE).edit().putBoolean(RESTORED_CONTEXT_KEY, enabled).apply();
-        toast(enabled ? "Recent restored-chat context enabled." : "Restored chats will start each new reply without previous messages.");
-        showMain();
+        boolean currentlyEnabled = getPreferences(MODE_PRIVATE).getBoolean(RESTORED_CONTEXT_KEY, true);
+        showChoiceDialog("Restored-chat context", "Choose whether a reopened conversation sends recent saved messages as context to the local model.",
+                new String[]{"On · include recent messages", "Off · start each reply fresh"}, currentlyEnabled ? 0 : 1, index -> {
+                    boolean enabled = index == 0;
+                    getPreferences(MODE_PRIVATE).edit().putBoolean(RESTORED_CONTEXT_KEY, enabled).apply();
+                    toast(enabled ? "Recent restored-chat context enabled." : "Restored chats will start replies without prior messages.");
+                    showMain();
+                });
     }
 
     private void sendMessage() {
@@ -1925,14 +2039,10 @@ public class MainActivity extends Activity {
             if (history.length() == 0) { toast("No saved conversations yet. Start a chat and it will appear in the sidebar."); return; }
             String[] titles = new String[history.length()];
             for (int i = 0; i < history.length(); i++) titles[i] = history.getJSONObject(i).optString("title", "Preparedness chat");
-            new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
-                    .setTitle("Your chats · saved on this device")
-                    .setItems(titles, (dialog, selectedIndex) -> {
-                        try { loadHistoryConversation(history.getJSONObject(selectedIndex)); }
-                        catch (Exception e) { toast("Could not open that saved conversation."); }
-                    })
-                    .setNegativeButton("Close", null)
-                    .show();
+            showChoiceDialog("Your chats", "Saved on this device. Choose a conversation to reopen.", titles, -1, selectedIndex -> {
+                try { loadHistoryConversation(history.getJSONObject(selectedIndex)); }
+                catch (Exception e) { toast("Could not open that saved conversation."); }
+            });
         } catch (Exception e) { toast("Could not read saved chat history."); }
     }
 
@@ -1969,12 +2079,8 @@ public class MainActivity extends Activity {
 
     private void confirmDeleteHistoryConversation(JSONObject target) {
         String title = target.optString("title", "Preparedness chat");
-        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("Delete saved chat?")
-                .setMessage("“" + title + "” will be removed from this device’s chat history.")
-                .setNegativeButton("Keep chat", null)
-                .setPositiveButton("Delete", (d, w) -> deleteHistoryConversation(target))
-                .show();
+        showBrandedConfirmation("Delete saved chat?", "“" + title + "” will be removed from this device’s chat history.",
+                "Keep chat", "Delete", true, () -> deleteHistoryConversation(target));
     }
 
     private void deleteHistoryConversation(JSONObject target) {
@@ -2012,11 +2118,12 @@ public class MainActivity extends Activity {
     }
 
     private void confirmClearChat() {
-        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("Clear saved chat?")
-                .setMessage("This removes the locally saved conversation from this device.")
-                .setNegativeButton("Keep it", null)
-                .setPositiveButton("Clear", (d, w) -> { chat.clear(); saveChat(); LocalModelBridge.startNewConversation(); activeConversationId = ""; getPreferences(MODE_PRIVATE).edit().remove(ACTIVE_SESSION_KEY).apply(); restoreHistoryContext = false; activeTab = "chat"; checklistOpen = false; showMain(); })
-                .show();
+        showBrandedConfirmation("Clear saved chat?", "This removes the locally saved conversation from this device.",
+                "Keep it", "Clear", true, () -> {
+                    chat.clear(); saveChat(); LocalModelBridge.startNewConversation(); activeConversationId = "";
+                    getPreferences(MODE_PRIVATE).edit().remove(ACTIVE_SESSION_KEY).apply();
+                    restoreHistoryContext = false; activeTab = "chat"; checklistOpen = false; showMain();
+                });
     }
 
     private String formatBytes(long bytes) {
@@ -2068,6 +2175,167 @@ public class MainActivity extends Activity {
         return button;
     }
 
+    private interface ChoiceHandler { void onChoice(int index); }
+
+    private LinearLayout brandedDialogShell(String title, String message) {
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.setPadding(dp(18), dp(18), dp(18), dp(16));
+        shell.setBackground(round(CARD, 20));
+        TextView heading = label(title, 18, INK);
+        heading.setTypeface(null, Typeface.BOLD);
+        shell.addView(heading);
+        if (message != null && !message.trim().isEmpty()) {
+            TextView description = label(message, 13, MUTED);
+            description.setGravity(Gravity.TOP | Gravity.START);
+            description.setLineSpacing(dp(3), 1.0f);
+            LinearLayout.LayoutParams messageParams = new LinearLayout.LayoutParams(-1, -2);
+            messageParams.topMargin = dp(7);
+            shell.addView(description, messageParams);
+        }
+        return shell;
+    }
+
+    private void showBrandedDialog(Dialog dialog) {
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window == null) return;
+        window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        int availableWidth = getResources().getDisplayMetrics().widthPixels - dp(32);
+        window.setLayout(Math.max(dp(220), Math.min(dp(440), availableWidth)), WindowManager.LayoutParams.WRAP_CONTENT);
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+    }
+
+    private void showChoiceDialog(String title, String description, String[] options, int selectedIndex, ChoiceHandler handler) {
+        Dialog dialog = new Dialog(this);
+        LinearLayout shell = brandedDialogShell(title, description);
+        LinearLayout choices = new LinearLayout(this);
+        choices.setOrientation(LinearLayout.VERTICAL);
+        for (int i = 0; i < options.length; i++) {
+            final int index = i;
+            boolean selected = i == selectedIndex;
+            LinearLayout choice = new LinearLayout(this);
+            choice.setOrientation(LinearLayout.HORIZONTAL);
+            choice.setGravity(Gravity.CENTER_VERTICAL);
+            choice.setPadding(dp(12), dp(11), dp(12), dp(11));
+            choice.setMinimumHeight(dp(48));
+            choice.setBackground(round(selected ? GREEN_SOFT : PAPER, 13));
+            TextView optionText = label(options[i], 14, INK);
+            if (selected) optionText.setTypeface(null, Typeface.BOLD);
+            choice.addView(optionText, new LinearLayout.LayoutParams(0, -2, 1));
+            TextView marker = label(selected ? "Selected" : "›", selected ? 11 : 20, selected ? GREEN_DARK : MUTED);
+            if (selected) marker.setTypeface(null, Typeface.BOLD);
+            choice.addView(marker);
+            choice.setClickable(true);
+            choice.setFocusable(true);
+            LinearLayout.LayoutParams choiceParams = new LinearLayout.LayoutParams(-1, -2);
+            choiceParams.topMargin = dp(7);
+            choices.addView(choice, choiceParams);
+            choice.setOnClickListener(v -> {
+                dialog.dismiss();
+                handler.onChoice(index);
+            });
+        }
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.addView(choices, new ScrollView.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, dp(Math.min(360, options.length * 58 + 4)));
+        scrollParams.topMargin = dp(7);
+        shell.addView(scroll, scrollParams);
+        LinearLayout footer = new LinearLayout(this);
+        footer.setGravity(Gravity.END);
+        TextView close = action("Close", false);
+        close.setPadding(dp(18), 0, dp(18), 0);
+        close.setMinHeight(dp(44));
+        close.setOnClickListener(v -> dialog.dismiss());
+        footer.addView(close, new LinearLayout.LayoutParams(-2, dp(44)));
+        LinearLayout.LayoutParams footerParams = new LinearLayout.LayoutParams(-1, -2);
+        footerParams.topMargin = dp(12);
+        shell.addView(footer, footerParams);
+        dialog.setContentView(shell);
+        dialog.setCancelable(true);
+        showBrandedDialog(dialog);
+    }
+
+    private void showBrandedConfirmation(String title, String message, String positiveLabel, Runnable onPositive) {
+        showBrandedConfirmation(title, message, "Cancel", positiveLabel, false, onPositive);
+    }
+
+    private void showBrandedConfirmation(String title, String message, String cancelLabel, String positiveLabel,
+            boolean destructive, Runnable onPositive) {
+        Dialog dialog = new Dialog(this);
+        LinearLayout shell = brandedDialogShell(title, message);
+        LinearLayout footer = new LinearLayout(this);
+        footer.setOrientation(LinearLayout.HORIZONTAL);
+        footer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        TextView cancel = action(cancelLabel, false);
+        TextView confirm = action(positiveLabel, true);
+        if (destructive) {
+            confirm.setBackground(round(Color.rgb(178, 54, 54), 15));
+            confirm.setTextColor(Color.WHITE);
+        }
+        cancel.setPadding(dp(12), 0, dp(12), 0);
+        confirm.setPadding(dp(12), 0, dp(12), 0);
+        cancel.setMinHeight(dp(44));
+        confirm.setMinHeight(dp(44));
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        confirm.setOnClickListener(v -> {
+            dialog.dismiss();
+            onPositive.run();
+        });
+        footer.addView(cancel, new LinearLayout.LayoutParams(0, dp(46), 1));
+        LinearLayout.LayoutParams confirmParams = new LinearLayout.LayoutParams(0, dp(46), 1);
+        confirmParams.leftMargin = dp(8);
+        footer.addView(confirm, confirmParams);
+        LinearLayout.LayoutParams footerParams = new LinearLayout.LayoutParams(-1, -2);
+        footerParams.topMargin = dp(14);
+        shell.addView(footer, footerParams);
+        dialog.setContentView(shell);
+        dialog.setCancelable(true);
+        showBrandedDialog(dialog);
+    }
+
+    private void showBrandedMessageDialog(String title, String message, String buttonLabel) {
+        Dialog dialog = new Dialog(this);
+        LinearLayout shell = brandedDialogShell(title, message);
+        TextView close = action(buttonLabel, true);
+        close.setMinHeight(dp(46));
+        close.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(46));
+        closeParams.topMargin = dp(14);
+        shell.addView(close, closeParams);
+        dialog.setContentView(shell);
+        dialog.setCancelable(true);
+        showBrandedDialog(dialog);
+    }
+
+    private void showBrandedDocumentDialog(String title, String content, boolean linkify) {
+        Dialog dialog = new Dialog(this);
+        LinearLayout shell = brandedDialogShell(title, "");
+        TextView text = label(content, 13, INK);
+        text.setGravity(Gravity.TOP | Gravity.START);
+        text.setLineSpacing(dp(3), 1.0f);
+        text.setPadding(dp(12), dp(12), dp(12), dp(12));
+        text.setTextIsSelectable(true);
+        if (linkify) android.text.util.Linkify.addLinks(text, android.text.util.Linkify.WEB_URLS);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackground(round(PAPER, 12));
+        scroll.addView(text);
+        int maxHeight = Math.max(dp(180), Math.min(dp(440), getResources().getDisplayMetrics().heightPixels - dp(220)));
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, maxHeight);
+        scrollParams.topMargin = dp(12);
+        shell.addView(scroll, scrollParams);
+        TextView close = action("Close", true);
+        close.setMinHeight(dp(46));
+        close.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(46));
+        closeParams.topMargin = dp(12);
+        shell.addView(close, closeParams);
+        dialog.setContentView(shell);
+        dialog.setCancelable(true);
+        showBrandedDialog(dialog);
+    }
+
     private TextView roundIcon(String glyph, String description) {
         TextView button = label(glyph, 23, GREEN_DARK);
         button.setGravity(Gravity.CENTER);
@@ -2104,20 +2372,7 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             content.append("The bundled privacy policy could not be opened. Please try again or contact the publisher through raihan.sites.bd.");
         }
-        TextView text = label(content.toString(), 13, INK);
-        text.setGravity(Gravity.TOP | Gravity.START);
-        text.setLineSpacing(dp(3), 1.0f);
-        text.setPadding(dp(16), dp(12), dp(16), dp(12));
-        text.setTextIsSelectable(true);
-        android.text.util.Linkify.addLinks(text, android.text.util.Linkify.WEB_URLS);
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(text);
-        int maxHeight = Math.min(dp(520), getResources().getDisplayMetrics().heightPixels - dp(180));
-        scroll.setLayoutParams(new ViewGroup.LayoutParams(-1, Math.max(dp(220), maxHeight)));
-        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("Privacy policy")
-                .setView(scroll)
-                .setPositiveButton("Close", null).show();
+        showBrandedDocumentDialog("Privacy policy", content.toString(), true);
     }
 
     private void showThirdPartyNotices() {
@@ -2128,28 +2383,19 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             content.append("Could not load the bundled notices. See THIRD_PARTY_NOTICES.md in the source repository.");
         }
-        TextView text = label(content.toString(), 13, INK);
-        text.setGravity(Gravity.TOP | Gravity.START);
-        text.setPadding(dp(16), dp(12), dp(16), dp(12));
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(text);
-        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("Open-source notices")
-                .setView(scroll)
-                .setPositiveButton("Close", null)
-                .show();
+        showBrandedDocumentDialog("Open-source notices", content.toString(), true);
     }
 
     private void showSafety() {
-        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("AI limits & safety")
-                .setMessage("Apocalyptic AI generates responses with an on-device language model. Output can be inaccurate, incomplete, outdated, biased, or unsafe, and safety filters may not catch every problem. Do not rely on the app as an emergency service or as medical, legal, financial, or other professional advice. For urgent situations, follow official local instructions and contact emergency services or qualified professionals.\n\nUse the app lawfully and do not treat its output as a substitute for your own judgment. Model licenses and third-party terms are listed under Open-source notices and in the project documentation. No statement here guarantees accuracy, fitness for a purpose, legal clearance, or Play Store approval, or limits rights that cannot legally be limited.")
-                .setPositiveButton("Got it", null).show();
+        showBrandedMessageDialog("AI limits & safety",
+                "Apocalyptic AI generates responses with an on-device language model. Output can be inaccurate, incomplete, outdated, biased, or unsafe, and safety filters may not catch every problem. Do not rely on the app as an emergency service or as medical, legal, financial, or other professional advice. For urgent situations, follow official local instructions and contact emergency services or qualified professionals.\n\nUse the app lawfully and do not treat its output as a substitute for your own judgment. Model licenses and third-party terms are listed under Open-source notices and in the project documentation. No statement here guarantees accuracy, fitness for a purpose, legal clearance, or Play Store approval, or limits rights that cannot legally be limited.",
+                "Got it");
     }
 
     private void showAbout() {
-        new AlertDialog.Builder(this, darkMode ? android.R.style.Theme_Material_Dialog_Alert : android.R.style.Theme_Material_Light_Dialog_Alert).setTitle("About Apocalyptic AI")
-                .setMessage("Version " + BuildConfig.VERSION_NAME + "\n\nApocalyptic AI is a privacy-first, local survival assistant. Chat uses " + selectedModel().attribution + " on this device. Model files are downloaded from their publishers and are not bundled. Check the linked model card and applicable license before commercial release; this app does not provide legal advice or a guarantee of rights.")
-                .setPositiveButton("Close", null).show();
+        showBrandedMessageDialog("About Apocalyptic AI",
+                "Version " + BuildConfig.VERSION_NAME + "\n\nApocalyptic AI is a privacy-first, local survival assistant. Chat uses " + selectedModel().attribution + " on this device. Model files are downloaded from their publishers and are not bundled. Check the linked model card and applicable license before commercial release; this app does not provide legal advice or a guarantee of rights.",
+                "Close");
     }
 
     private void openDonate() {
@@ -2163,7 +2409,39 @@ public class MainActivity extends Activity {
         } catch (Exception e) { toast("Could not open this link."); }
     }
 
-    private void toast(String message) { Toast.makeText(this, message, Toast.LENGTH_LONG).show(); }
+    private void removeTransientNotice() {
+        if (transientNotice == null) return;
+        transientNotice.animate().cancel();
+        if (transientNotice.getParent() instanceof ViewGroup)
+            ((ViewGroup) transientNotice.getParent()).removeView(transientNotice);
+        transientNotice = null;
+    }
+
+    private void toast(String message) {
+        try {
+            removeTransientNotice();
+            View decor = getWindow().getDecorView();
+            if (!(decor instanceof FrameLayout)) return;
+            TextView notice = label(message, 14, ON_ACCENT);
+            notice.setGravity(Gravity.CENTER_VERTICAL);
+            notice.setPadding(dp(16), dp(13), dp(16), dp(13));
+            notice.setMaxLines(3);
+            notice.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            notice.setBackground(round(GREEN, 16));
+            notice.setElevation(dp(8));
+            notice.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+            notice.setAlpha(0f);
+            notice.setTranslationY(dp(10));
+            transientNotice = notice;
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            params.setMargins(dp(16), 0, dp(16), dp(20));
+            ((FrameLayout) decor).addView(notice, params);
+            notice.animate().alpha(1f).translationY(0f).setDuration(170).start();
+            notice.announceForAccessibility(message);
+            handler.removeCallbacks(dismissTransientNotice);
+            handler.postDelayed(dismissTransientNotice, 2800L);
+        } catch (Exception ignored) { }
+    }
     private String safeMessage(Exception e) { return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
 
     @Override public void onBackPressed() {

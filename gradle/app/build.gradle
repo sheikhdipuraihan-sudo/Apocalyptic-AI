@@ -8,10 +8,10 @@ def signingValue = { String prop, String env -> System.getenv(env) ?: signingPro
 def keystorePath = signingValue('storeFile', 'ANDROID_KEYSTORE_FILE')
 def releaseKeystore = keystorePath ? (new File(keystorePath).isAbsolute() ? new File(keystorePath) : rootProject.file(keystorePath)) : null
 def hasReleaseSigning = releaseKeystore != null && releaseKeystore.exists() && signingValue('storePassword', 'ANDROID_KEYSTORE_PASSWORD')
-def appTargetSdkValue = rootProject.hasProperty('appTargetSdk') ? rootProject.property('appTargetSdk').toString().toInteger() : 35
+def appTargetSdkValue = rootProject.hasProperty('appTargetSdk') ? rootProject.property('appTargetSdk').toString().toInteger() : 36
 def appVersionCodeValue = rootProject.hasProperty('appVersionCode') ? rootProject.property('appVersionCode').toString().toInteger() : 1
 def appVersionNameValue = rootProject.hasProperty('appVersionName') ? rootProject.property('appVersionName').toString() : '1.0.0'
-android { namespace 'bd.sites.raihan.apocalypticai'; compileSdk 35
+android { namespace 'bd.sites.raihan.apocalypticai'; compileSdk 36
     buildFeatures { buildConfig true }
     defaultConfig {
         applicationId 'bd.sites.raihan.apocalypticai'

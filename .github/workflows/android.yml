@@ -18,6 +18,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android 16 SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Prepare signing key
@@ -93,7 +97,7 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: Apocalyptic AI v1.0.${{ github.run_number }}
           body: |
-            `app-release.apk` is signed with v1 + v2 + v3 (RSA-2048), works on Android 7 to Android 15.
+            `app-release.apk` is signed with v1 + v2 + v3 (RSA-2048), supports Android 7+ and targets Android 16 (API 36).
             If you installed an older build signed with a different key, uninstall it first.
           generate_release_notes: true
           prerelease: true
