@@ -35,9 +35,6 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.speech.RecognitionListener;
-import android.speech.RecognizerIntent;
-import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 
 import com.arm.aichat.LocalModelBridge;
@@ -66,7 +63,6 @@ public class MainActivity extends Activity {
     private static final String ACTIVE_SESSION_KEY = "active_chat_session_id";
     private static final String SPEAK_REPLIES_KEY = "speak_replies_enabled";
     private static final String VOICE_LANGUAGE_KEY = "voice_language";
-    private static final String VOICE_DISCLOSURE_MODE_KEY = "voice_disclosure_mode_v2";
     private static final String RESPONSE_LENGTH_KEY = "response_length_mode";
     private static final String RESTORED_CONTEXT_KEY = "restored_chat_context_enabled";
     private static final String CONTEXT_SIZE_KEY = "context_size";
@@ -79,7 +75,7 @@ public class MainActivity extends Activity {
     private static final String RETIRED_TITULM_CLEANUP_KEY = "retired_titulm_model_cleanup_v1";
     private static final String RETIRED_TITULM_MODEL_ID = "titulm-mpt-1b";
     private static final String RETIRED_TITULM_FILE = "titulm-mpt-1b-v2.0.i1-Q4_K_M.gguf";
-    private static final String SYSTEM_PROMPT = "You are Apocalyptic AI, a concise on-device preparedness assistant. Give direct, practical safety guidance. Never help with weapons, explosives, traps, or harming people. For emergencies, recommend local emergency services or qualified professionals. Return only the answer; do not reveal private reasoning.";
+    private static final String SYSTEM_PROMPT = "You are Apocalyptic AI, a concise on-device preparedness assistant. Give concise but complete safety guidance. Finish each answer with a complete sentence and do not omit needed steps. Never help with weapons, explosives, traps, or harming people. For emergencies, recommend local emergency services or qualified professionals. Return only the answer; do not reveal private reasoning.";
     private static final String[] KIT_ITEMS = {"Safe drinking water", "Water treatment method", "Shelf-stable food", "First-aid kit", "Essential medicines", "Warm and rain layers", "Light and spare power", "Paper map and compass", "Whistle or signal", "Repair kit and cordage", "Hygiene supplies", "Emergency contacts and plan"};
 
     private static final class ModelSpec {
@@ -188,7 +184,6 @@ public class MainActivity extends Activity {
     private LinearLayout messageColumn;
     private ScrollView chatScroll;
     private EditText composer;
-    private TextView microphoneButton;
     private ProgressBar modelProgress;
     private TextView modelProgressText;
     private TextView modelPageStatus;
@@ -207,14 +202,11 @@ public class MainActivity extends Activity {
     private boolean checklistOpen;
     private long downloadId = -1L;
     private boolean isGenerating;
-    private boolean isListening;
-    private SpeechRecognizer speechRecognizer;
     private TextToSpeech textToSpeech;
     private TextView transientNotice;
     private final Runnable dismissTransientNotice = () -> removeTransientNotice();
     private boolean textToSpeechReady;
     private String pendingSpeech = "";
-    private String voiceInputBaseText = "";
     private boolean generationStoppedByUser;
     private boolean restoreHistoryContext;
     private int onboardingPage;
@@ -372,7 +364,6 @@ public class MainActivity extends Activity {
 
     @Override protected void onPause() {
         handler.removeCallbacks(downloadPoller);
-        if (isListening) stopVoiceInput(true);
         super.onPause();
     }
 
@@ -385,10 +376,6 @@ public class MainActivity extends Activity {
         handler.removeCallbacks(downloadPoller);
         handler.removeCallbacks(dismissTransientNotice);
         removeTransientNotice();
-        if (speechRecognizer != null) {
-            speechRecognizer.destroy();
-            speechRecognizer = null;
-        }
         if (textToSpeech != null) {
             textToSpeech.stop();
             textToSpeech.shutdown();
@@ -399,10 +386,7 @@ public class MainActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == 3107) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) startVoiceInput();
-            else toast("Microphone permission is needed for voice input.");
-        } else if (requestCode == 3108) {
+        if (requestCode == 3108) {
             if (grantResults.length == 0 || grantResults[0] != PackageManager.PERMISSION_GRANTED)
                 toast("Notifications are off. Download progress will remain available in Models.");
             enqueueModelDownload();
@@ -1056,16 +1040,6 @@ public class MainActivity extends Activity {
         composer.setPadding(dp(15), dp(10), dp(12), dp(10));
         composer.setBackground(round(CARD, 20));
         composeRow.addView(composer, new LinearLayout.LayoutParams(0, dp(52), 1));
-        microphoneButton = label(isListening ? "Stop" : "Mic", 12, GREEN_DARK);
-        microphoneButton.setTypeface(null, Typeface.BOLD);
-        microphoneButton.setGravity(Gravity.CENTER);
-        microphoneButton.setContentDescription(isListening ? "Stop voice input" : "Start on-device voice input");
-        microphoneButton.setBackground(round(GREEN_SOFT, 18));
-        microphoneButton.setEnabled(!isGenerating);
-        LinearLayout.LayoutParams microphoneParams = new LinearLayout.LayoutParams(dp(48), dp(48));
-        microphoneParams.leftMargin = dp(6);
-        composeRow.addView(microphoneButton, microphoneParams);
-        microphoneButton.setOnClickListener(v -> { if (isListening) stopVoiceInput(false); else requestVoiceInput(); });
         TextView send = label(isGenerating ? "Stop" : "Send", 13, ON_ACCENT);
         send.setTypeface(null, Typeface.BOLD);
         send.setGravity(Gravity.CENTER);
@@ -1601,128 +1575,6 @@ public class MainActivity extends Activity {
         return "Not downloaded · choose a model to begin local chat";
     }
 
-    private boolean onDeviceSpeechAvailable() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false;
-        try { return SpeechRecognizer.isOnDeviceRecognitionAvailable(this); }
-        catch (Exception ignored) { return false; }
-    }
-
-    private void requestVoiceInput() {
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            toast("Voice input is unavailable. Install or enable a speech recognition service on this device.");
-            return;
-        }
-        boolean onDevice = onDeviceSpeechAvailable();
-        String mode = onDevice ? "on_device" : "system_service";
-        if (!mode.equals(getPreferences(MODE_PRIVATE).getString(VOICE_DISCLOSURE_MODE_KEY, ""))) {
-            String disclosure = onDevice
-                    ? "Android reports that on-device recognition is available. Audio is passed to that system recognizer to create draft text; Apocalyptic AI does not upload recordings to its own server. Availability and handling are controlled by Android and the installed speech component."
-                    : "This device does not provide on-device recognition to the app. Dictation will use the installed Android speech service, which may send audio to its provider or require internet; its privacy practices apply. Apocalyptic AI does not upload audio to its own server. Continue only if you are comfortable with the installed provider handling the recording. Tap Mic again to use this service."
-                    ;
-            showBrandedConfirmation("Voice input & privacy", disclosure, "Continue", () -> {
-                getPreferences(MODE_PRIVATE).edit().putString(VOICE_DISCLOSURE_MODE_KEY, mode).apply();
-                requestMicrophonePermissionOrStart();
-            });
-            return;
-        }
-        requestMicrophonePermissionOrStart();
-    }
-
-    private void requestMicrophonePermissionOrStart() {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 3107);
-            return;
-        }
-        startVoiceInput();
-    }
-
-    private void startVoiceInput() {
-        if (isGenerating || isListening) return;
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            toast("No speech recognition service is available on this device.");
-            return;
-        }
-        boolean onDevice = onDeviceSpeechAvailable();
-        try {
-            voiceInputBaseText = composer == null ? "" : composer.getText().toString().trim();
-            speechRecognizer = onDevice
-                    ? SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
-                    : SpeechRecognizer.createSpeechRecognizer(this);
-            speechRecognizer.setRecognitionListener(new RecognitionListener() {
-                @Override public void onReadyForSpeech(Bundle params) { }
-                @Override public void onBeginningOfSpeech() { }
-                @Override public void onRmsChanged(float rmsdB) { }
-                @Override public void onBufferReceived(byte[] buffer) { }
-                @Override public void onEndOfSpeech() { }
-                @Override public void onError(int error) {
-                    boolean wasListening = isListening;
-                    finishVoiceInput();
-                    if (!wasListening) return;
-                    toast(error == SpeechRecognizer.ERROR_NO_MATCH ? "No speech was recognized. Try again." : "The speech service could not complete dictation. Try again.");
-                }
-                @Override public void onResults(Bundle results) {
-                    ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                    if (matches != null && !matches.isEmpty()) {
-                        updateVoiceInput(matches.get(0));
-                        toast("Voice input added. Review it before sending.");
-                    } else toast("No speech was recognized. Try again.");
-                    finishVoiceInput();
-                }
-                @Override public void onPartialResults(Bundle partialResults) {
-                    ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                    if (matches != null && !matches.isEmpty()) updateVoiceInput(matches.get(0));
-                }
-                @Override public void onEvent(int eventType, Bundle params) { }
-            });
-            Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, voiceLanguageTag());
-            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-            intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
-            isListening = true;
-            if (microphoneButton != null) {
-                microphoneButton.setText("Stop");
-                microphoneButton.setContentDescription("Stop voice input");
-            }
-            speechRecognizer.startListening(intent);
-            toast(onDevice ? "Listening with on-device recognition… tap Stop when finished."
-                    : "Listening with the installed Android speech service… tap Stop when finished.");
-        } catch (Exception e) {
-            finishVoiceInput();
-            toast("Could not start voice input. Check that your speech service is enabled.");
-        }
-    }
-
-    private void updateVoiceInput(String recognizedText) {
-        if (composer == null || recognizedText == null || recognizedText.trim().isEmpty()) return;
-        String text = voiceInputBaseText.isEmpty() ? recognizedText.trim() : voiceInputBaseText + " " + recognizedText.trim();
-        composer.setText(text);
-        composer.setSelection(text.length());
-    }
-
-    private void stopVoiceInput(boolean cancel) {
-        if (speechRecognizer != null) {
-            if (cancel) {
-                speechRecognizer.cancel();
-                finishVoiceInput();
-            } else {
-                speechRecognizer.stopListening();
-            }
-        }
-    }
-
-    private void finishVoiceInput() {
-        isListening = false;
-        if (speechRecognizer != null) {
-            speechRecognizer.destroy();
-            speechRecognizer = null;
-        }
-        if (microphoneButton != null) {
-            microphoneButton.setText("Mic");
-            microphoneButton.setContentDescription("Start voice input");
-        }
-    }
-
     private void toggleSpokenReplies() {
         boolean currentlyEnabled = getPreferences(MODE_PRIVATE).getBoolean(SPEAK_REPLIES_KEY, false);
         showChoiceDialog("Spoken replies", "Choose whether completed assistant answers are read aloud using the voice installed on the phone.",
@@ -1747,7 +1599,7 @@ public class MainActivity extends Activity {
 
     private void cycleVoiceLanguage() {
         String[] values = {"system", "bn-BD", "en-US"};
-        showChoiceDialog("Voice language", "This selection applies to dictation and spoken replies when supported by installed speech engines.",
+        showChoiceDialog("Voice language", "This selection applies to spoken replies when supported by the installed speech engine.",
                 new String[]{"System language", "Bangla · Bangladesh", "English · United States"},
                 choiceIndex(values, getPreferences(MODE_PRIVATE).getString(VOICE_LANGUAGE_KEY, "system")), index -> {
                     String next = values[index];
@@ -1797,7 +1649,7 @@ public class MainActivity extends Activity {
 
         LinearLayout privacy = card();
         TextView privacyTitle = label("Privacy policy", 16, INK); privacyTitle.setTypeface(null, Typeface.BOLD); privacy.addView(privacyTitle);
-        TextView privacyText = label("Read how this app handles on-device chats, voice features, model downloads, and your privacy.", 13, MUTED);
+        TextView privacyText = label("Read how this app handles on-device chats, optional spoken replies, model downloads, and your privacy.", 13, MUTED);
         privacyText.setLineSpacing(dp(3), 1.0f);
         LinearLayout.LayoutParams privacyParams = new LinearLayout.LayoutParams(-1, -2); privacyParams.topMargin = dp(7); privacy.addView(privacyText, privacyParams);
         privacy.setClickable(true);
@@ -1860,12 +1712,12 @@ public class MainActivity extends Activity {
     }
 
     private String responseLengthMode() {
-        return getPreferences(MODE_PRIVATE).getString(RESPONSE_LENGTH_KEY, "fast");
+        return getPreferences(MODE_PRIVATE).getString(RESPONSE_LENGTH_KEY, "detailed");
     }
 
     private int responseTokenBudget() {
         String mode = responseLengthMode();
-        return "detailed".equals(mode) ? 320 : "balanced".equals(mode) ? 160 : 128;
+        return "detailed".equals(mode) ? 8192 : "balanced".equals(mode) ? 4096 : 2048;
     }
 
     private String responseLengthLabel() {
@@ -1877,7 +1729,7 @@ public class MainActivity extends Activity {
     private void cycleResponseLength() {
         String[] values = {"fast", "balanced", "detailed"};
         showChoiceDialog("Response length", "Choose a shorter/faster reply or allow more room for detail.",
-                new String[]{"Fast · up to 128 tokens", "Balanced · up to 160 tokens", "Detailed · up to 320 tokens"},
+                new String[]{"Fast · up to 2,048 tokens", "Balanced · up to 4,096 tokens", "Detailed · up to 8,192 tokens"},
                 choiceIndex(values, responseLengthMode()), index -> {
                     String next = values[index];
                     getPreferences(MODE_PRIVATE).edit().putString(RESPONSE_LENGTH_KEY, next).apply();
@@ -1946,7 +1798,7 @@ public class MainActivity extends Activity {
                 reply.text = visibleAssistantText(generated.toString());
                 if (replyView != null) {
                     boolean reasoningOnly = reply.text.trim().isEmpty() && generated.length() > 0;
-                    replyView.setText(reasoningOnly || reply.text.isEmpty() ? "Thinking…" : reply.text);
+                    replyView.setText(reasoningOnly || reply.text.isEmpty() ? "Thinking…" : formattedAssistantText(reply.text));
                     replyView.setTextColor(reasoningOnly || reply.text.isEmpty() ? MUTED : INK);
                 }
                 if (chatScroll != null) chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
@@ -2037,6 +1889,19 @@ public class MainActivity extends Activity {
         if (messageColumn != null) addMessageView(message);
     }
 
+    private String markdownToHtml(String markdown) {
+        String escaped = android.text.TextUtils.htmlEncode(markdown);
+        escaped = escaped.replaceAll("(?s)\\*\\*(.+?)\\*\\*", "<b>$1</b>");
+        escaped = escaped.replaceAll("(?s)__(.+?)__", "<b>$1</b>");
+        escaped = escaped.replaceAll("(?s)(?<!\\*)\\*([^*\\n]+)\\*(?!\\*)", "<i>$1</i>");
+        escaped = escaped.replaceAll("(?m)^\\s*[-*]\\s+", "• ");
+        return escaped.replace("\\r\\n", "\\n").replace("\\n", "<br>");
+    }
+
+    private CharSequence formattedAssistantText(String markdown) {
+        return android.text.Html.fromHtml(markdownToHtml(markdown), android.text.Html.FROM_HTML_MODE_LEGACY);
+    }
+
     private void addMessageView(ChatMessage message) {
         LinearLayout bubble = new LinearLayout(this);
         bubble.setOrientation(LinearLayout.VERTICAL);
@@ -2048,6 +1913,9 @@ public class MainActivity extends Activity {
         bubble.addView(who);
         String displayText = "user".equals(message.role) ? message.text : visibleAssistantText(message.text);
         TextView body = label(displayText.isEmpty() ? "Thinking…" : displayText, 14, INK);
+        if (!displayText.isEmpty() && !"user".equals(message.role)) {
+            body.setText(formattedAssistantText(displayText));
+        }
         body.setLineSpacing(dp(3), 1.0f);
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2); bp.topMargin = dp(5); bubble.addView(body, bp);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);

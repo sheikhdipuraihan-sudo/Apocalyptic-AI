@@ -13,17 +13,17 @@ This policy describes Apocalyptic AI for Android and the data handling implement
 - **Model files:** Downloaded model weights are stored in app-specific storage.
 - The app does not intentionally collect account details, contacts, location, camera data, or payment-card details. Android backup is disabled.
 
-## Voice features
+## Spoken replies
 
-Voice input is optional and starts only after you tap the microphone, review the in-app disclosure, and grant microphone permission. On supported Android versions, audio is passed to Android's on-device speech recognizer to produce draft text. The app does not send the recording to its own server. Recognition availability and the speech service/model's handling depend on Android and what is installed on your device. Spoken replies are optional and use the Android text-to-speech engine and voice installed on your device; the engine's offline behavior and data practices are controlled by the device/provider.
+Spoken replies are optional and use the Android text-to-speech engine and voice installed on your device. The engine’s offline behavior and data practices are controlled by the device/provider. The app does not record audio or provide microphone dictation.
 
 ## Network connections and third parties
 
-Android DownloadManager downloads a model only after you choose one. The selected model host and content-delivery provider may receive ordinary connection information such as your IP address, requested file, and request time; their terms and privacy policies apply. Choosing Donate opens raihan.sites.bd in an external browser, which is subject to that website's and browser's own practices. The app does not send prompts to a cloud AI inference service. Model files and libraries are identified in the app's Open-source notices and project documentation; review their respective terms.
+The app downloads a model only after you choose one. The selected model host and content-delivery provider may receive ordinary connection information such as your IP address, requested file, and request time; their terms and privacy policies apply. Choosing Donate opens raihan.sites.bd in an external browser, which is subject to that website's and browser's own practices. The app does not send prompts to a cloud AI inference service. Model files and libraries are identified in the app's Open-source notices and project documentation; review their respective terms.
 
 ## Permissions
 
-Internet access is used for user-requested model downloads and opening the donation website. Microphone permission is requested only for voice input. The app does not request location, contacts, camera, phone-state, or notification permissions.
+Internet access is used for user-requested model downloads and opening the donation website. The app does not request microphone, location, contacts, camera, or phone-state permissions. On Android 13 and later, it requests notification permission to show model-download progress and completion.
 
 ## Retention and deletion
 
