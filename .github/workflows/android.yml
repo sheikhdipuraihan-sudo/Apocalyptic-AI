@@ -18,19 +18,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Android 16 SDK
-        run: |
-          set -euo pipefail
-          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print -quit)
-          if [ -z "$SDKMANAGER" ]; then
-            echo "::error::Android SDK command-line tools were not found on the runner."
-            exit 1
-          fi
-          set +o pipefail
-          yes | "$SDKMANAGER" --licenses
-          set -o pipefail
-          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Prepare signing key
@@ -106,7 +93,8 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: Apocalyptic AI v1.0.${{ github.run_number }}
           body: |
-            `app-release.apk` is signed with v1 + v2 + v3 (RSA-2048), supports Android 7+ and targets Android 16 (API 36).
+            `app-release.apk` is signed with v1 + v2 + v3 (RSA-2048), works on Android 7 to Android 15.
+            Built with the same AGP 8.6.1 / API 35 setup as the build that installed on Android 11.
             If you installed an older build signed with a different key, uninstall it first.
           generate_release_notes: true
           prerelease: true
