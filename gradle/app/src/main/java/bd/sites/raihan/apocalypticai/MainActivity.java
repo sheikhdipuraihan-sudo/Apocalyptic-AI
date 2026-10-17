@@ -637,13 +637,6 @@ public class MainActivity extends Activity {
             menu.setOnClickListener(v -> toggleNavigationDrawer());
             toolbar.addView(menu);
         }
-        ImageView brandIcon = new ImageView(this);
-        brandIcon.setImageResource(R.drawable.ic_apocalyptic_mark);
-        brandIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        brandIcon.setContentDescription("Apocalyptic AI logo");
-        LinearLayout.LayoutParams brandIconParams = new LinearLayout.LayoutParams(dp(30), dp(30));
-        brandIconParams.rightMargin = dp(8);
-        toolbar.addView(brandIcon, brandIconParams);
         String pageTitle = "chat".equals(activeTab) ? "Chat" : "model".equals(activeTab) ? "Models" : "Settings";
         TextView title = label(pageTitle, 17, INK);
         title.setTypeface(null, Typeface.BOLD);
@@ -750,13 +743,6 @@ public class MainActivity extends Activity {
         LinearLayout brandRow = new LinearLayout(this);
         brandRow.setGravity(Gravity.CENTER_VERTICAL);
         brandRow.setPadding(dp(8), dp(5), dp(8), dp(13));
-        ImageView sidebarLogo = new ImageView(this);
-        sidebarLogo.setImageResource(R.drawable.ic_apocalyptic_mark);
-        sidebarLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        sidebarLogo.setContentDescription("Apocalyptic AI logo");
-        LinearLayout.LayoutParams sidebarLogoParams = new LinearLayout.LayoutParams(dp(34), dp(34));
-        sidebarLogoParams.rightMargin = dp(8);
-        brandRow.addView(sidebarLogo, sidebarLogoParams);
         TextView brand = label("Apocalyptic AI", 15, INK);
         brand.setTypeface(null, Typeface.BOLD);
         brandRow.addView(brand, new LinearLayout.LayoutParams(0, -2, 1));
