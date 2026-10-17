@@ -79,7 +79,6 @@ jobs:
           report=$("$apksigner" verify --verbose --print-certs "$apk_path")
           printf '%s\n' "$report"
           printf '%s\n' "$report" | grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true'
-          printf '%s\n' "$report" | grep -Fq 'Verified using v3 scheme (APK Signature Scheme v3): false'
           cp "$apk_path" release-out/app-release.apk
           cp "$aab_path" release-out/app-release.aab
           ls -lh release-out
@@ -107,7 +106,7 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: Apocalyptic AI v1.0.${{ github.run_number }}
           body: |
-            `app-release.apk` is signed with v1 + v2 (RSA-2048), supports Android 7+ and targets Android 16 (API 36).
+            `app-release.apk` is signed with v1 + v2 + v3 (RSA-2048), supports Android 7+ and targets Android 16 (API 36).
             If you installed an older build signed with a different key, uninstall it first.
           generate_release_notes: true
           prerelease: true

@@ -30,7 +30,7 @@ android { namespace 'bd.sites.raihan.apocalypticai'; compileSdk 36
             }
             enableV1Signing true
             enableV2Signing true
-            enableV3Signing false
+            enableV3Signing true
         }
     }
     buildTypes { release { minifyEnabled true; shrinkResources true; signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' } }
