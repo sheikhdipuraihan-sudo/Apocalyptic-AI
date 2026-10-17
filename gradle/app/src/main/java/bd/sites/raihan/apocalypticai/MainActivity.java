@@ -218,6 +218,7 @@ public class MainActivity extends Activity {
     private boolean generationStoppedByUser;
     private boolean restoreHistoryContext;
     private int onboardingPage;
+    private int onboardingEpoch;
 
     private final Runnable downloadPoller = new Runnable() {
         @Override public void run() {
@@ -547,6 +548,7 @@ public class MainActivity extends Activity {
     }
 
     private void showOnboarding(int page) {
+        onboardingEpoch++;
         onboardingPage = page;
         appRoot = new LinearLayout(this);
         appRoot.setOrientation(LinearLayout.VERTICAL);
@@ -584,9 +586,10 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams descParams = new LinearLayout.LayoutParams(-1, -2);
         descParams.topMargin = dp(14);
         content.addView(description, descParams);
+        TextView note = null;
         if (page == 2) {
             LinearLayout privacy = card();
-            TextView note = label("Model weights download only after you choose. Chat stays on this phone; the model publisher’s license is shown in Models.", 14, GREEN_DARK);
+            note = label("Model weights download only after you choose. Chat stays on this phone; the model publisher’s license is shown in Models.", 14, GREEN_DARK);
             note.setLineSpacing(dp(3), 1.0f);
             privacy.addView(note);
             LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
@@ -607,12 +610,89 @@ public class MainActivity extends Activity {
         }
         appRoot.addView(dots);
         TextView next = action(page == 2 ? "Open Apocalyptic AI" : "Continue", true);
-        next.setOnClickListener(v -> { if (onboardingPage == 2) finishOnboarding(); else showOnboarding(onboardingPage + 1); });
+        next.setOnClickListener(v -> {
+            next.setClickable(false);
+            if (!animationsEnabled()) {
+                if (onboardingPage == 2) finishOnboarding();
+                else showOnboarding(onboardingPage + 1);
+                return;
+            }
+            content.animate().alpha(0f).setDuration(140)
+                    .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                    .withEndAction(() -> {
+                        if (onboardingPage == 2) finishOnboarding();
+                        else showOnboarding(onboardingPage + 1);
+                    }).start();
+        });
         appRoot.addView(next, new LinearLayout.LayoutParams(-1, dp(54)));
         setContentView(appRoot);
+        if (animationsEnabled()) {
+            content.setAlpha(0f);
+            content.setTranslationY(dp(8));
+            content.animate().alpha(1f).translationY(0f).setDuration(280)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+            dots.setAlpha(0f);
+            dots.animate().alpha(1f).setStartDelay(80).setDuration(220).start();
+            next.setAlpha(0f);
+            next.animate().alpha(1f).setStartDelay(100).setDuration(220).start();
+        }
+        TextView privacyNote = note;
+        revealText(mark, "APOCALYPTIC AI", GREEN_DARK, 40, false, () ->
+                revealText(title, titles[page], INK, 30, false, () ->
+                        revealText(description, descriptions[page], MUTED, 40, true, () -> {
+                            if (privacyNote != null) revealText(privacyNote, privacyNote.getText().toString(), GREEN_DARK, 30, true, null);
+                        })));
+    }
+
+    private void revealText(TextView view, String text, int color, long delay, boolean byWord, Runnable onDone) {
+        final int epoch = onboardingEpoch;
+        final String full = text == null ? "" : text;
+        if (!animationsEnabled()) {
+            view.setText(full);
+            if (onDone != null) onDone.run();
+            return;
+        }
+        view.setText(hiddenSpan(full));
+        Runnable tick = new Runnable() {
+            int index = 0;
+            @Override public void run() {
+                if (epoch != onboardingEpoch) return;
+                if (full.isEmpty()) {
+                    view.setText("");
+                    if (onDone != null) onDone.run();
+                    return;
+                }
+                int nextIndex = index + 1;
+                if (byWord) {
+                    int space = full.indexOf(' ', Math.min(full.length() - 1, index + 1));
+                    nextIndex = space < 0 ? full.length() : space + 1;
+                }
+                index = Math.min(full.length(), nextIndex);
+                android.text.SpannableString span = new android.text.SpannableString(full);
+                if (index > 0) {
+                    span.setSpan(new android.text.style.ForegroundColorSpan(color), 0, index, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                }
+                if (index < full.length()) {
+                    span.setSpan(new android.text.style.ForegroundColorSpan(Color.TRANSPARENT), index, full.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                }
+                view.setText(span);
+                if (index < full.length()) handler.postDelayed(this, byWord ? 42 : 16);
+                else if (onDone != null) onDone.run();
+            }
+        };
+        handler.postDelayed(tick, delay);
+    }
+
+    private android.text.SpannableString hiddenSpan(String full) {
+        android.text.SpannableString hidden = new android.text.SpannableString(full);
+        if (!full.isEmpty()) {
+            hidden.setSpan(new android.text.style.ForegroundColorSpan(Color.TRANSPARENT), 0, full.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return hidden;
     }
 
     private void finishOnboarding() {
+        onboardingEpoch++;
         getPreferences(MODE_PRIVATE).edit().putBoolean("onboarding_complete", true).apply();
         showMain();
     }
@@ -1221,7 +1301,62 @@ public class MainActivity extends Activity {
         np.topMargin = dp(13);
         content.addView(note, np);
         scroll.addView(content);
-        pageBody.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        FrameLayout modelStage = new FrameLayout(this);
+        modelStage.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+        String jumpLabel = selectedModelReady() ? "Ready  ↓" : "Download  ↓";
+        TextView jumpToDownload = action(jumpLabel, true);
+        jumpToDownload.setContentDescription("Scroll to the download button");
+        jumpToDownload.setPadding(dp(16), 0, dp(16), 0);
+        FrameLayout jumpWrap = new FrameLayout(this);
+        jumpWrap.addView(jumpToDownload, new FrameLayout.LayoutParams(-2, dp(46)));
+        jumpWrap.setElevation(dp(8));
+        FrameLayout.LayoutParams jumpParams = new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.BOTTOM);
+        jumpParams.setMargins(0, 0, dp(2), dp(12));
+        jumpWrap.setVisibility(View.GONE);
+        modelStage.addView(jumpWrap, jumpParams);
+        final boolean[] jumpVisible = {false};
+        Runnable syncJump = () -> {
+            int viewport = scroll.getHeight();
+            boolean canScroll = content.getHeight() > viewport + dp(48);
+            boolean downloadReached = viewport > 0 && scroll.getScrollY() + viewport >= stateCard.getTop() + dp(40);
+            boolean show = canScroll && !downloadReached;
+            if (show == jumpVisible[0]) return;
+            jumpVisible[0] = show;
+            jumpWrap.animate().cancel();
+            if (show) {
+                jumpWrap.setVisibility(View.VISIBLE);
+                if (animationsEnabled()) {
+                    jumpWrap.setAlpha(0f);
+                    jumpWrap.animate().alpha(1f).setDuration(180).start();
+                } else jumpWrap.setAlpha(1f);
+            } else if (animationsEnabled()) {
+                jumpWrap.animate().alpha(0f).setDuration(140).withEndAction(() -> {
+                    if (!jumpVisible[0]) jumpWrap.setVisibility(View.GONE);
+                }).start();
+            } else jumpWrap.setVisibility(View.GONE);
+        };
+        jumpToDownload.setOnClickListener(v -> scroll.post(() -> {
+            scroll.fullScroll(View.FOCUS_DOWN);
+            if (animationsEnabled() && modelAction != null) {
+                modelAction.setPivotX(modelAction.getWidth() / 2f);
+                modelAction.setPivotY(modelAction.getHeight() / 2f);
+                modelAction.animate().cancel();
+                modelAction.setScaleX(0.97f);
+                modelAction.setScaleY(0.97f);
+                modelAction.animate().scaleX(1f).scaleY(1f).setDuration(260)
+                        .setInterpolator(new android.view.animation.OvershootInterpolator()).start();
+            }
+        }));
+        scroll.getViewTreeObserver().addOnScrollChangedListener(syncJump::run);
+        scroll.post(syncJump);
+        if (animationsEnabled()) {
+            android.animation.ObjectAnimator bob = android.animation.ObjectAnimator.ofFloat(jumpToDownload, View.TRANSLATION_Y, 0f, -dp(5), 0f);
+            bob.setDuration(1500);
+            bob.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+            bob.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+            bob.start();
+        }
+        pageBody.addView(modelStage, new LinearLayout.LayoutParams(-1, 0, 1));
         refreshDownloadState();
         if (downloadId > 0L) {
             handler.removeCallbacks(downloadPoller);
