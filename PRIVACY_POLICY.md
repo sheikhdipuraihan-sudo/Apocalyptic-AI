@@ -23,7 +23,7 @@ Android DownloadManager downloads a model only after you choose one. The selecte
 
 ## Permissions
 
-Internet access is used for user-requested model downloads and opening the donation website. Microphone permission is requested only for voice input. On Android 13 and later, the app may request notification permission to show model-download progress and completion alerts; denying it does not prevent the download. Model files are stored in app-specific storage, so the app does not request broad shared-storage access. The app does not request location, contacts, camera, or phone-state permissions.
+Internet access is used for user-requested model downloads and opening the donation website. Microphone permission is requested only for voice input. The app does not request location, contacts, camera, phone-state, or notification permissions.
 
 ## Retention and deletion
 
