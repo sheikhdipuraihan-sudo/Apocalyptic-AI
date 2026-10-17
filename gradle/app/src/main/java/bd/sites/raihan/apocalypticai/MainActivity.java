@@ -380,6 +380,10 @@ public class MainActivity extends Activity {
         if (requestCode == 3107) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) startVoiceInput();
             else toast("Microphone permission is needed for voice input.");
+        } else if (requestCode == 3108) {
+            if (grantResults.length == 0 || grantResults[0] != PackageManager.PERMISSION_GRANTED)
+                toast("Notifications are off. Download progress will remain available in Models.");
+            enqueueModelDownload();
         }
     }
 
@@ -612,30 +616,11 @@ public class MainActivity extends Activity {
         TextView next = action(page == 2 ? "Open Apocalyptic AI" : "Continue", true);
         next.setOnClickListener(v -> {
             next.setClickable(false);
-            if (!animationsEnabled()) {
-                if (onboardingPage == 2) finishOnboarding();
-                else showOnboarding(onboardingPage + 1);
-                return;
-            }
-            content.animate().alpha(0f).setDuration(140)
-                    .setInterpolator(new android.view.animation.AccelerateInterpolator())
-                    .withEndAction(() -> {
-                        if (onboardingPage == 2) finishOnboarding();
-                        else showOnboarding(onboardingPage + 1);
-                    }).start();
+            if (onboardingPage == 2) finishOnboarding();
+            else showOnboarding(onboardingPage + 1);
         });
         appRoot.addView(next, new LinearLayout.LayoutParams(-1, dp(54)));
         setContentView(appRoot);
-        if (animationsEnabled()) {
-            content.setAlpha(0f);
-            content.setTranslationY(dp(8));
-            content.animate().alpha(1f).translationY(0f).setDuration(280)
-                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
-            dots.setAlpha(0f);
-            dots.animate().alpha(1f).setStartDelay(80).setDuration(220).start();
-            next.setAlpha(0f);
-            next.animate().alpha(1f).setStartDelay(100).setDuration(220).start();
-        }
         TextView privacyNote = note;
         revealText(mark, "APOCALYPTIC AI", GREEN_DARK, 40, false, () ->
                 revealText(title, titles[page], INK, 30, false, () ->
@@ -1303,10 +1288,22 @@ public class MainActivity extends Activity {
         scroll.addView(content);
         FrameLayout modelStage = new FrameLayout(this);
         modelStage.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
-        String jumpLabel = selectedModelReady() ? "Ready  ↓" : "Download  ↓";
-        TextView jumpToDownload = action(jumpLabel, true);
-        jumpToDownload.setContentDescription("Scroll to the download button");
+        LinearLayout jumpToDownload = new LinearLayout(this);
+        jumpToDownload.setOrientation(LinearLayout.HORIZONTAL);
+        jumpToDownload.setGravity(Gravity.CENTER);
         jumpToDownload.setPadding(dp(16), 0, dp(16), 0);
+        jumpToDownload.setBackground(round(GREEN, 15));
+        jumpToDownload.setClickable(true);
+        jumpToDownload.setFocusable(true);
+        jumpToDownload.setContentDescription("Scroll to the download button");
+        TextView jumpLabel = label(selectedModelReady() ? "Ready" : "Download", 14, ON_ACCENT);
+        jumpLabel.setTypeface(null, Typeface.BOLD);
+        jumpToDownload.addView(jumpLabel);
+        ImageView jumpIcon = new ImageView(this);
+        setSvgIcon(jumpIcon, "scroll_down.svg", R.drawable.ic_nav_model, ON_ACCENT);
+        LinearLayout.LayoutParams jumpIconParams = new LinearLayout.LayoutParams(dp(18), dp(18));
+        jumpIconParams.leftMargin = dp(8);
+        jumpToDownload.addView(jumpIcon, jumpIconParams);
         FrameLayout jumpWrap = new FrameLayout(this);
         jumpWrap.addView(jumpToDownload, new FrameLayout.LayoutParams(-2, dp(46)));
         jumpWrap.setElevation(dp(8));
@@ -1335,27 +1332,9 @@ public class MainActivity extends Activity {
                 }).start();
             } else jumpWrap.setVisibility(View.GONE);
         };
-        jumpToDownload.setOnClickListener(v -> scroll.post(() -> {
-            scroll.fullScroll(View.FOCUS_DOWN);
-            if (animationsEnabled() && modelAction != null) {
-                modelAction.setPivotX(modelAction.getWidth() / 2f);
-                modelAction.setPivotY(modelAction.getHeight() / 2f);
-                modelAction.animate().cancel();
-                modelAction.setScaleX(0.97f);
-                modelAction.setScaleY(0.97f);
-                modelAction.animate().scaleX(1f).scaleY(1f).setDuration(260)
-                        .setInterpolator(new android.view.animation.OvershootInterpolator()).start();
-            }
-        }));
+        jumpToDownload.setOnClickListener(v -> scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN)));
         scroll.getViewTreeObserver().addOnScrollChangedListener(syncJump::run);
         scroll.post(syncJump);
-        if (animationsEnabled()) {
-            android.animation.ObjectAnimator bob = android.animation.ObjectAnimator.ofFloat(jumpToDownload, View.TRANSLATION_Y, 0f, -dp(5), 0f);
-            bob.setDuration(1500);
-            bob.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-            bob.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
-            bob.start();
-        }
         pageBody.addView(modelStage, new LinearLayout.LayoutParams(-1, 0, 1));
         refreshDownloadState();
         if (downloadId > 0L) {
@@ -1470,6 +1449,13 @@ public class MainActivity extends Activity {
     }
 
     private void startModelDownload() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 3108);
+            return;
+        }
+        enqueueModelDownload();
+    }
+    private void enqueueModelDownload() {
         try {
             ModelSpec model = selectedModel();
             File target = getModelFile();
@@ -1486,12 +1472,18 @@ public class MainActivity extends Activity {
             request.setTitle("Apocalyptic AI · " + model.name);
             request.setDescription("Downloading " + model.name + " (" + formatBytes(model.expectedBytes) + ")");
             request.setMimeType("application/octet-stream");
-            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN);
             request.setAllowedOverMetered(true);
             request.setAllowedOverRoaming(false);
             request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, model.fileName);
             downloadId = manager.enqueue(request);
             saveDownloadId(model.id, downloadId);
+            Intent notificationService = new Intent(this, ModelDownloadNotificationService.class)
+                    .putExtra(ModelDownloadNotificationService.EXTRA_DOWNLOAD_ID, downloadId)
+                    .putExtra(ModelDownloadNotificationService.EXTRA_MODEL_NAME, model.name)
+                    .putExtra(ModelDownloadNotificationService.EXTRA_EXPECTED_BYTES, model.expectedBytes);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(notificationService);
+            else startService(notificationService);
             if (modelPageStatus != null) modelPageStatus.setText("Connecting to the model host…");
             if (modelAction != null) modelAction.setText("Cancel download");
             handler.removeCallbacks(downloadPoller);
@@ -1596,6 +1588,7 @@ public class MainActivity extends Activity {
     }
 
     private void cancelDownload() {
+        stopService(new Intent(this, ModelDownloadNotificationService.class));
         DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
         if (manager != null && downloadId > 0L) manager.remove(downloadId);
         getModelFile().delete();
@@ -1605,6 +1598,7 @@ public class MainActivity extends Activity {
     }
 
     private void removeModel() {
+        stopService(new Intent(this, ModelDownloadNotificationService.class));
         DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
         if (manager != null && downloadId > 0L) manager.remove(downloadId);
         getModelFile().delete();
